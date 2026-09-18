@@ -68,6 +68,11 @@ public partial class MainWindow : Window
         MouseShareText.Text = _mouseShare.Status;
     }
 
+    private void SwitchMouse_Click(object sender, RoutedEventArgs e)
+    {
+        _mouseShare?.SwitchNow();
+    }
+
     private async void CheckForUpdates_Click(object sender, RoutedEventArgs e)
     {
         StatusText.Text = "Suche GitHub-Update …";

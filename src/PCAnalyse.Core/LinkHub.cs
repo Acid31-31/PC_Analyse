@@ -27,6 +27,7 @@ public sealed class LinkHub : IDisposable
     public bool Waiting { get; set; } = true;
     public string? PeerInstanceId { get; private set; }
     public IPAddress? PeerAddress { get; private set; }
+    public bool WeInitiatedPairing { get; private set; }
     public string Status { get; private set; } = "Getrennt";
     public string? ConnectedPeer { get; private set; }
 
@@ -98,6 +99,7 @@ public sealed class LinkHub : IDisposable
             _session = client;
             PeerAddress = ToIpv4(endpoint.Address);
             PeerInstanceId = peer.InstanceId;
+            WeInitiatedPairing = true;
             ConnectedPeer = response.Name;
             SetStatus($"Verbunden mit {response.Name}");
             PeerConnected?.Invoke(peer.InstanceId, response.Name);
@@ -267,6 +269,7 @@ public sealed class LinkHub : IDisposable
             ConnectedPeer = message.Name;
             PeerAddress = ToIpv4((client.Client.RemoteEndPoint as IPEndPoint)?.Address);
             PeerInstanceId = message.Id;
+            WeInitiatedPairing = false;
             SetStatus($"Verbunden mit {message.Name}");
             PeerConnected?.Invoke(message.Id, message.Name);
             await KeepAliveAsync(reader, writer, sendPing: false, token);

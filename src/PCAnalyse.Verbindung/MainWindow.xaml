@@ -127,6 +127,10 @@
                            HorizontalAlignment="Center" Margin="0,20,0,0"/>
                 <TextBlock x:Name="MouseShareText" Foreground="{DynamicResource TextSecondary}" FontSize="13"
                            HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" Margin="0,12,0,0"/>
+                <Button Content="Maus auf den anderen PC" Click="SwitchMouse_Click"
+                        Margin="0,18,0,0" Padding="18,10" HorizontalAlignment="Center"
+                        Background="{DynamicResource AccentBrush}" Foreground="{DynamicResource TextOnAccent}"
+                        BorderThickness="0" FontWeight="SemiBold" Cursor="Hand"/>
             </StackPanel>
         </Border>
 

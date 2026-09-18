@@ -328,7 +328,6 @@ public partial class MainWindow : Window
             LinkStatusDetail.Text = $"Verbunden mit {response.Name}";
             if (LinkProgress is not null)
                 LinkProgress.IsIndeterminate = false;
-            StartMouseShare();
         }
         catch (Exception ex)
         {
@@ -338,8 +337,19 @@ public partial class MainWindow : Window
 
     private void PeerSide_Changed(object sender, RoutedEventArgs e)
     {
-        if (_hub?.ConnectedPeer is not null)
-            StartMouseShare();
+        var side = PeerLeftRadio?.IsChecked == true ? PeerSide.Left : PeerSide.Right;
+        _mouseShare?.SetPeerSide(side);
+    }
+
+    private void SwitchMouse_Click(object sender, RoutedEventArgs e)
+    {
+        if (_mouseShare is null)
+        {
+            SetStatus("Erst verbinden, dann Maus rüberschieben.");
+            return;
+        }
+
+        _mouseShare.SwitchNow();
     }
 
     private void StartMouseShare()

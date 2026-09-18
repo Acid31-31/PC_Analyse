@@ -441,6 +441,9 @@
                             <RadioButton x:Name="PeerLeftRadio" Content="links"
                                          Foreground="{DynamicResource TextPrimary}" Checked="PeerSide_Changed"/>
                         </StackPanel>
+                        <Button Content="Maus auf den anderen PC" Style="{StaticResource PrimaryActionBtn}"
+                                HorizontalAlignment="Left" Margin="0,16,0,0" Padding="18,10"
+                                Click="SwitchMouse_Click"/>
                         <ProgressBar x:Name="LinkProgress" IsIndeterminate="True" Margin="0,14,0,0"/>
                     </StackPanel>
                 </Border>

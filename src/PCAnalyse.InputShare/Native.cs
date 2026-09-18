@@ -52,6 +52,53 @@ internal static class Native
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     public static extern IntPtr GetModuleHandle(string? lpModuleName);
 
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr LoadLibrary(string lpFileName);
+
+    [DllImport("kernel32.dll")]
+    public static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll")]
+    public static extern short GetAsyncKeyState(int vKey);
+
+    [DllImport("user32.dll")]
+    public static extern int GetMessage(out Msg lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+
+    [DllImport("user32.dll")]
+    public static extern bool TranslateMessage(ref Msg lpMsg);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr DispatchMessage(ref Msg lpMsg);
+
+    [DllImport("user32.dll")]
+    public static extern bool PeekMessage(out Msg lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
+
+    [DllImport("user32.dll")]
+    public static extern bool PostThreadMessage(uint idThread, uint msg, IntPtr wParam, IntPtr lParam);
+
+    public const uint PmRemove = 1;
+    public const int VkLButton = 0x01;
+    public const int VkRButton = 0x02;
+    public const int VkMButton = 0x04;
+
+    public const uint WmQuit = 0x0012;
+    public const int VkControl = 0x11;
+    public const int VkMenu = 0x12;
+    public const int VkLeft = 0x25;
+    public const int VkRight = 0x27;
+    public const int VkR = 0x52;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Msg
+    {
+        public IntPtr Hwnd;
+        public uint Message;
+        public IntPtr WParam;
+        public IntPtr LParam;
+        public uint Time;
+        public Point Point;
+    }
+
     [DllImport("user32.dll")]
     public static extern bool GetCursorPos(out Point lpPoint);
 

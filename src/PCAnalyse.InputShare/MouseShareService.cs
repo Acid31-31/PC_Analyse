@@ -20,14 +20,18 @@ public sealed class MouseShareService : IDisposable
     private const byte MsgWheel = 5;
     private const byte MsgKey = 6;
     private const byte MsgLeave = 7;
+    private const int EdgePixels = 8;
 
     private readonly object _sendLock = new();
+    private readonly object _sessionLock = new();
     private readonly Native.HookProc _mouseProc;
     private readonly Native.HookProc _keyProc;
     private CancellationTokenSource? _cts;
     private TcpListener? _listener;
     private TcpClient? _client;
     private NetworkStream? _stream;
+    private Thread? _hookThread;
+    private uint _hookThreadId;
     private IntPtr _mouseHook;
     private IntPtr _keyHook;
     private volatile bool _cursorHere = true;
@@ -39,6 +43,9 @@ public sealed class MouseShareService : IDisposable
     private int _remoteH = 1080;
     private int _centerX;
     private int _centerY;
+    private bool _leftDown;
+    private bool _rightDown;
+    private bool _midDown;
 
     public PeerSide PeerSide { get; private set; } = PeerSide.Right;
     public string Status { get; private set; } = "Maus: getrennt";
@@ -52,26 +59,54 @@ public sealed class MouseShareService : IDisposable
 
     public void Start(IPAddress? peerAddress, string? peerId, string localId, PeerSide peerSide)
     {
-        Stop();
         if (peerAddress is null)
         {
-            SetStatus("Maus: keine Peer-IP");
+            SetStatus("Maus: keine Peer-IP – erst verbinden");
             return;
         }
 
+        if (_cts is { IsCancellationRequested: false })
+        {
+            PeerSide = peerSide;
+            return;
+        }
+
+        Stop();
         PeerSide = peerSide;
         _cts = new CancellationTokenSource();
         var token = _cts.Token;
-        _ = Task.Run(() => ConnectLoopAsync(peerAddress, peerId ?? "", localId, token), token);
-        InstallHooks();
-        SetStatus(peerSide == PeerSide.Right
-            ? "Maus bereit – rechten Rand für den anderen PC"
-            : "Maus bereit – linken Rand für den anderen PC");
+        var weConnect = string.IsNullOrEmpty(peerId)
+                        || string.CompareOrdinal(localId, peerId) > 0;
+        StartHookThread();
+        _ = Task.Run(() => ConnectAsync(peerAddress, weConnect, token), token);
+        SetStatus("Maus: verbinde mit " + peerAddress + " …");
+    }
+
+    public void SetPeerSide(PeerSide side) => PeerSide = side;
+
+    public void SwitchNow()
+    {
+        if (!_connected)
+        {
+            SetStatus("Maus: noch nicht verbunden – kurz warten");
+            return;
+        }
+
+        if (!_cursorHere)
+            return;
+
+        var screen = Native.VirtualScreen();
+        Native.GetCursorPos(out var pt);
+        var yNorm = screen.Height <= 1 ? 0.5f : (pt.Y - screen.Y) / (float)Math.Max(1, screen.Height - 1);
+        SwitchToPeer(Math.Clamp(yNorm, 0f, 1f));
     }
 
     public void Stop()
     {
         _cts?.Cancel();
+        if (_hookThreadId != 0)
+            Native.PostThreadMessage(_hookThreadId, Native.WmQuit, IntPtr.Zero, IntPtr.Zero);
+        try { _hookThread?.Join(1000); } catch { /* ignore */ }
         RemoveHooks();
         Native.ClipCursor(IntPtr.Zero);
         try { _stream?.Dispose(); } catch { /* ignore */ }
@@ -82,39 +117,179 @@ public sealed class MouseShareService : IDisposable
         _listener = null;
         _connected = false;
         _cursorHere = true;
+        _hookThreadId = 0;
         _cts?.Dispose();
         _cts = null;
     }
 
     public void Dispose() => Stop();
 
-    private async Task ConnectLoopAsync(IPAddress peer, string peerId, string localId, CancellationToken token)
+    private void StartHookThread()
     {
-        var weConnect = string.IsNullOrEmpty(peerId) || string.CompareOrdinal(localId, peerId) < 0;
-        while (!token.IsCancellationRequested)
+        _hookThread = new Thread(HookThreadMain)
         {
-            try
+            IsBackground = true,
+            Name = "PCAnalyse-Maus"
+        };
+        _hookThread.SetApartmentState(ApartmentState.STA);
+        _hookThread.Start();
+    }
+
+    private void HookThreadMain()
+    {
+        _hookThreadId = Native.GetCurrentThreadId();
+        TryInstallHooks();
+        Native.Msg msg;
+        while (true)
+        {
+            while (Native.PeekMessage(out msg, IntPtr.Zero, 0, 0, Native.PmRemove))
             {
-                if (weConnect)
-                    await ConnectClientAsync(peer, token);
-                else
-                    await AcceptServerAsync(token);
+                if (msg.Message == Native.WmQuit)
+                {
+                    RemoveHooks();
+                    return;
+                }
+
+                Native.TranslateMessage(ref msg);
+                Native.DispatchMessage(ref msg);
             }
-            catch (OperationCanceledException)
-            {
-                return;
-            }
-            catch
-            {
-                await Task.Delay(800, token);
-            }
+
+            PollCursor();
+            PollButtons();
+            Thread.Sleep(8);
         }
     }
 
-    private async Task ConnectClientAsync(IPAddress peer, CancellationToken token)
+    private void TryInstallHooks()
+    {
+        var modules = new List<IntPtr> { Native.LoadLibrary("user32.dll"), IntPtr.Zero };
+        try
+        {
+            var name = System.Diagnostics.Process.GetCurrentProcess().MainModule?.ModuleName;
+            modules.Insert(1, Native.GetModuleHandle(name));
+        }
+        catch { /* self-contained ohne MainModule */ }
+
+        foreach (var module in modules)
+        {
+            _mouseHook = Native.SetWindowsHookEx(Native.WhMouseLl, _mouseProc, module, 0);
+            _keyHook = Native.SetWindowsHookEx(Native.WhKeyboardLl, _keyProc, module, 0);
+            if (_mouseHook != IntPtr.Zero)
+                return;
+        }
+    }
+
+    private void PollCursor()
+    {
+        if (!_connected || _mouseHook != IntPtr.Zero)
+            return;
+        Native.GetCursorPos(out var pt);
+        if (_cursorHere)
+        {
+            if (DateTime.UtcNow >= _ignoreEdgeUntil && HitPeerEdge(pt.X, pt.Y, out var yNorm))
+                SwitchToPeer(yNorm);
+            return;
+        }
+
+        var dx = pt.X - _centerX;
+        var dy = pt.Y - _centerY;
+        if (Math.Abs(dx) < 1 && Math.Abs(dy) < 1)
+            return;
+        Native.SetCursorPos(_centerX, _centerY);
+        _remoteX = Math.Clamp(_remoteX + dx, 0, _remoteW - 1);
+        _remoteY = Math.Clamp(_remoteY + dy, 0, _remoteH - 1);
+        if (HitReturnEdge())
+        {
+            SendLeave();
+            ReturnCursorHere();
+            return;
+        }
+
+        Send(writer =>
+        {
+            writer.Write(MsgMove);
+            writer.Write(_remoteX);
+            writer.Write(_remoteY);
+        });
+    }
+
+    private void PollButtons()
+    {
+        if (!_connected || _cursorHere || _mouseHook != IntPtr.Zero)
+            return;
+        PollButton(Native.VkLButton, 0, ref _leftDown);
+        PollButton(Native.VkRButton, 1, ref _rightDown);
+        PollButton(Native.VkMButton, 2, ref _midDown);
+    }
+
+    private void PollButton(int vk, byte button, ref bool wasDown)
+    {
+        var down = (Native.GetAsyncKeyState(vk) & 0x8000) != 0;
+        if (down == wasDown)
+            return;
+        wasDown = down;
+        Send(writer =>
+        {
+            writer.Write(MsgButton);
+            writer.Write(button);
+            writer.Write((byte)(down ? 1 : 0));
+        });
+    }
+
+    private async Task ConnectAsync(IPAddress peer, bool weConnect, CancellationToken token)
+    {
+        var listening = false;
+        _listener = new TcpListener(IPAddress.Any, LinkPorts.InputTcp);
+        _listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+        try
+        {
+            _listener.Start();
+            listening = true;
+        }
+        catch (Exception ex)
+        {
+            SetStatus("Maus-Port 49583 belegt: " + ex.Message);
+        }
+
+        if (listening)
+            _ = AcceptLoopAsync(token);
+
+        try
+        {
+            if (weConnect || !listening)
+                await ConnectLoopAsync(peer, token);
+            else
+                await Task.Delay(Timeout.Infinite, token);
+        }
+        catch (OperationCanceledException)
+        {
+            /* Stop */
+        }
+    }
+
+    private async Task AcceptLoopAsync(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested && _listener is not null)
+        {
+            TcpClient client;
+            try { client = await _listener.AcceptTcpClientAsync(token); }
+            catch (OperationCanceledException) { return; }
+            catch { continue; }
+            client.NoDelay = true;
+            _ = RunSessionAsync(client, token);
+        }
+    }
+
+    private async Task ConnectLoopAsync(IPAddress peer, CancellationToken token)
     {
         while (!token.IsCancellationRequested)
         {
+            if (_connected)
+            {
+                await Task.Delay(1000, token);
+                continue;
+            }
+
             var client = new TcpClient { NoDelay = true };
             try
             {
@@ -126,52 +301,57 @@ public sealed class MouseShareService : IDisposable
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
                 client.Dispose();
-                throw;
+                return;
             }
             catch
             {
                 client.Dispose();
-                await Task.Delay(500, token);
+                await Task.Delay(400, token);
             }
-        }
-    }
-
-    private async Task AcceptServerAsync(CancellationToken token)
-    {
-        _listener = new TcpListener(IPAddress.Any, LinkPorts.InputTcp);
-        _listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-        _listener.Start();
-        while (!token.IsCancellationRequested)
-        {
-            var client = await _listener.AcceptTcpClientAsync(token);
-            client.NoDelay = true;
-            try { await RunSessionAsync(client, token); }
-            catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
-            catch { /* nächste Verbindung */ }
         }
     }
 
     private async Task RunSessionAsync(TcpClient client, CancellationToken token)
     {
-        _client?.Dispose();
-        _client = client;
-        _stream = client.GetStream();
-        _connected = true;
-        _cursorHere = true;
+        lock (_sessionLock)
+        {
+            if (_connected)
+            {
+                client.Dispose();
+                return;
+            }
+
+            _client = client;
+            _stream = client.GetStream();
+            _connected = true;
+            _cursorHere = true;
+        }
+
         SendHello();
         SetStatus(PeerSide == PeerSide.Right
-            ? "Eine Maus für beide PCs – rechts rüber"
-            : "Eine Maus für beide PCs – links rüber");
+            ? "Maus verbunden – rechten Rand oder Strg+Alt+Pfeil rechts"
+            : "Maus verbunden – linken Rand oder Strg+Alt+Pfeil links");
         try
         {
             await ReceiveLoopAsync(token);
         }
         finally
         {
-            _connected = false;
-            _cursorHere = true;
+            lock (_sessionLock)
+            {
+                if (ReferenceEquals(_client, client))
+                {
+                    _connected = false;
+                    _cursorHere = true;
+                    _stream = null;
+                    _client = null;
+                }
+            }
+
+            try { client.Dispose(); } catch { /* ignore */ }
             Native.ClipCursor(IntPtr.Zero);
-            SetStatus("Maus: Verbindung unterbrochen, suche neu …");
+            if (!token.IsCancellationRequested)
+                SetStatus("Maus: Verbindung weg, suche neu …");
         }
     }
 
@@ -286,6 +466,7 @@ public sealed class MouseShareService : IDisposable
                 ReturnCursorHere();
                 return 1;
             }
+
             Send(writer =>
             {
                 writer.Write(MsgMove);
@@ -333,7 +514,7 @@ public sealed class MouseShareService : IDisposable
 
     private IntPtr KeyHook(int nCode, IntPtr wParam, IntPtr lParam)
     {
-        if (nCode < 0 || !_connected || _cursorHere)
+        if (nCode < 0 || !_connected)
             return Native.CallNextHookEx(_keyHook, nCode, wParam, lParam);
 
         var data = Marshal.PtrToStructure<Native.Kbdllhookstruct>(lParam);
@@ -341,6 +522,17 @@ public sealed class MouseShareService : IDisposable
             return Native.CallNextHookEx(_keyHook, nCode, wParam, lParam);
 
         var down = wParam.ToInt32() is Native.WmKeyDown or Native.WmSysKeyDown;
+        if (_cursorHere)
+        {
+            if (down && IsSwitchHotkey((int)data.vkCode))
+            {
+                SwitchNow();
+                return 1;
+            }
+
+            return Native.CallNextHookEx(_keyHook, nCode, wParam, lParam);
+        }
+
         Send(writer =>
         {
             writer.Write(MsgKey);
@@ -350,30 +542,42 @@ public sealed class MouseShareService : IDisposable
         return 1;
     }
 
+    private bool IsSwitchHotkey(int vk)
+    {
+        var ctrl = (Native.GetAsyncKeyState(Native.VkControl) & 0x8000) != 0;
+        var alt = (Native.GetAsyncKeyState(Native.VkMenu) & 0x8000) != 0;
+        if (!ctrl || !alt)
+            return false;
+        if (vk == Native.VkR)
+            return true;
+        return PeerSide == PeerSide.Right ? vk == Native.VkRight : vk == Native.VkLeft;
+    }
+
     private bool HitPeerEdge(int x, int y, out float yNorm)
     {
         var screen = Native.VirtualScreen();
         yNorm = screen.Height <= 1 ? 0.5f : (y - screen.Y) / (float)(screen.Height - 1);
         yNorm = Math.Clamp(yNorm, 0f, 1f);
         return PeerSide == PeerSide.Right
-            ? x >= screen.Right
-            : x <= screen.X;
+            ? x >= screen.Right - EdgePixels
+            : x <= screen.X + EdgePixels;
     }
 
     private bool HitReturnEdge()
     {
-        return PeerSide == PeerSide.Right ? _remoteX <= 0 : _remoteX >= _remoteW - 1;
+        return PeerSide == PeerSide.Right ? _remoteX <= EdgePixels : _remoteX >= _remoteW - 1 - EdgePixels;
     }
 
     private void SwitchToPeer(float yNorm)
     {
         _cursorHere = false;
-        _ignoreEdgeUntil = DateTime.UtcNow.AddMilliseconds(400);
+        _leftDown = _rightDown = _midDown = false;
+        _ignoreEdgeUntil = DateTime.UtcNow.AddMilliseconds(500);
         var screen = Native.VirtualScreen();
         _centerX = screen.X + screen.Width / 2;
         _centerY = screen.Y + screen.Height / 2;
         Native.SetCursorPos(_centerX, _centerY);
-        _remoteX = PeerSide == PeerSide.Right ? 2 : _remoteW - 3;
+        _remoteX = PeerSide == PeerSide.Right ? EdgePixels + 2 : _remoteW - EdgePixels - 3;
         _remoteY = Math.Clamp((int)(yNorm * (_remoteH - 1)), 0, _remoteH - 1);
         var enterEdge = (byte)(PeerSide == PeerSide.Right ? 0 : 1);
         Send(writer =>
@@ -383,18 +587,18 @@ public sealed class MouseShareService : IDisposable
             writer.Write(yNorm);
             writer.Write(PeerSide == PeerSide.Right ? 0f : 1f);
         });
-        SetStatus("Maus auf dem anderen PC – Rand zurück");
+        SetStatus("Maus auf dem anderen PC – Rand zurück oder Strg+Alt+Pfeil");
     }
 
     private void TakeCursorFromNetwork(byte edge, float yNorm, float xNorm)
     {
         _cursorHere = true;
-        _ignoreEdgeUntil = DateTime.UtcNow.AddMilliseconds(400);
+        _ignoreEdgeUntil = DateTime.UtcNow.AddMilliseconds(500);
         Native.ClipCursor(IntPtr.Zero);
         var screen = Native.VirtualScreen();
-        var x = edge == 0 ? screen.X + 4 : screen.Right - 4;
+        var x = edge == 0 ? screen.X + EdgePixels : screen.Right - EdgePixels;
         if (xNorm > 0.5f)
-            x = screen.Right - 4;
+            x = screen.Right - EdgePixels;
         var y = screen.Y + (int)(Math.Clamp(yNorm, 0f, 1f) * (screen.Height - 1));
         Native.SetCursorPos(x, y);
         SetStatus("Maus auf diesem PC");
@@ -403,20 +607,17 @@ public sealed class MouseShareService : IDisposable
     private void ReturnCursorHere()
     {
         _cursorHere = true;
-        _ignoreEdgeUntil = DateTime.UtcNow.AddMilliseconds(400);
+        _ignoreEdgeUntil = DateTime.UtcNow.AddMilliseconds(500);
         Native.ClipCursor(IntPtr.Zero);
         var screen = Native.VirtualScreen();
-        var x = PeerSide == PeerSide.Right ? screen.Right - 8 : screen.X + 8;
-        Native.SetCursorPos(x, _centerY);
+        var x = PeerSide == PeerSide.Right ? screen.Right - EdgePixels - 4 : screen.X + EdgePixels + 4;
+        Native.SetCursorPos(x, _centerY == 0 ? screen.Y + screen.Height / 2 : _centerY);
         SetStatus(PeerSide == PeerSide.Right
-            ? "Maus auf diesem PC – rechts rüber"
-            : "Maus auf diesem PC – links rüber");
+            ? "Maus auf diesem PC – rechts rüber oder Strg+Alt+→"
+            : "Maus auf diesem PC – links rüber oder Strg+Alt+←");
     }
 
-    private void SendLeave()
-    {
-        Send(writer => writer.Write(MsgLeave));
-    }
+    private void SendLeave() => Send(writer => writer.Write(MsgLeave));
 
     private void Send(Action<BinaryWriter> write)
     {
@@ -445,8 +646,10 @@ public sealed class MouseShareService : IDisposable
     private static void InjectMove(int x, int y)
     {
         var screen = Native.VirtualScreen();
-        var absX = (int)Math.Round(x * 65535.0 / Math.Max(1, screen.Width - 1));
-        var absY = (int)Math.Round(y * 65535.0 / Math.Max(1, screen.Height - 1));
+        var absX = (int)Math.Round((screen.X + x) * 65535.0 / Math.Max(1, screen.Width - 1));
+        var absY = (int)Math.Round((screen.Y + y) * 65535.0 / Math.Max(1, screen.Height - 1));
+        absX = (int)Math.Round(x * 65535.0 / Math.Max(1, screen.Width - 1));
+        absY = (int)Math.Round(y * 65535.0 / Math.Max(1, screen.Height - 1));
         SendMouse(absX, absY, Native.MouseeventfMove | Native.MouseeventfAbsolute | Native.MouseeventfVirtualdesk, 0);
     }
 
@@ -503,15 +706,6 @@ public sealed class MouseShareService : IDisposable
         Native.SendInput(1, new[] { input }, Marshal.SizeOf<Native.Input>());
     }
 
-    private void InstallHooks()
-    {
-        RemoveHooks();
-        var moduleName = System.Diagnostics.Process.GetCurrentProcess().MainModule?.ModuleName;
-        var module = Native.GetModuleHandle(moduleName);
-        _mouseHook = Native.SetWindowsHookEx(Native.WhMouseLl, _mouseProc, module, 0);
-        _keyHook = Native.SetWindowsHookEx(Native.WhKeyboardLl, _keyProc, module, 0);
-    }
-
     private void RemoveHooks()
     {
         if (_mouseHook != IntPtr.Zero)
@@ -519,6 +713,7 @@ public sealed class MouseShareService : IDisposable
             Native.UnhookWindowsHookEx(_mouseHook);
             _mouseHook = IntPtr.Zero;
         }
+
         if (_keyHook != IntPtr.Zero)
         {
             Native.UnhookWindowsHookEx(_keyHook);

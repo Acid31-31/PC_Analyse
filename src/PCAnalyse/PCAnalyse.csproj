@@ -13,5 +13,6 @@
   <ItemGroup>
     <ProjectReference Include="..\PCAnalyse.Core\PCAnalyse.Core.csproj" />
     <ProjectReference Include="..\PCAnalyse.Setup\PCAnalyse.Setup.csproj" />
+    <ProjectReference Include="..\PCAnalyse.InputShare\PCAnalyse.InputShare.csproj" />
   </ItemGroup>
 </Project>

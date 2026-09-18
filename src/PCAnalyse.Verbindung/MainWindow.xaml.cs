@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Input;
 using PCAnalyse.Core;
+using PCAnalyse.InputShare;
 using PCAnalyse.Setup;
 
 namespace PCAnalyse.Verbindung;
@@ -9,6 +10,7 @@ public partial class MainWindow : Window
 {
     private readonly PairingStore _store = new();
     private LinkHub? _hub;
+    private MouseShareService? _mouseShare;
 
     public MainWindow()
     {
@@ -36,6 +38,7 @@ public partial class MainWindow : Window
             WaitBar.Visibility = Visibility.Collapsed;
             WaitText.Text = "Verbunden mit " + name;
             StatusText.Text = "Verbunden mit " + name;
+            StartMouseShare();
         });
         _hub.PeersChanged += peers => Dispatcher.Invoke(() =>
         {
@@ -46,6 +49,23 @@ public partial class MainWindow : Window
         _hub.Start();
         StatusText.Text = _hub.Status;
         WaitText.Text = _hub.Status;
+    }
+
+    private void StartMouseShare()
+    {
+        if (_hub?.PeerAddress is null)
+            return;
+        if (_mouseShare is null)
+        {
+            _mouseShare = new MouseShareService();
+            _mouseShare.StatusChanged += text => Dispatcher.Invoke(() =>
+            {
+                MouseShareText.Text = text;
+                StatusText.Text = text;
+            });
+        }
+        _mouseShare.Start(_hub.PeerAddress, _hub.PeerInstanceId, _hub.InstanceId, PeerSide.Left);
+        MouseShareText.Text = _mouseShare.Status;
     }
 
     private async void CheckForUpdates_Click(object sender, RoutedEventArgs e)
@@ -62,5 +82,9 @@ public partial class MainWindow : Window
     private void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
 
-    private void Window_Closed(object sender, EventArgs e) => _hub?.Dispose();
+    private void Window_Closed(object sender, EventArgs e)
+    {
+        _mouseShare?.Dispose();
+        _hub?.Dispose();
+    }
 }

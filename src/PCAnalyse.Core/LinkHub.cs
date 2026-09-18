@@ -25,6 +25,8 @@ public sealed class LinkHub : IDisposable
     public string InstanceId { get; } = Guid.NewGuid().ToString("N");
     public string ComputerName { get; } = Environment.MachineName;
     public bool Waiting { get; set; } = true;
+    public string? PeerInstanceId { get; private set; }
+    public IPAddress? PeerAddress { get; private set; }
     public string Status { get; private set; } = "Getrennt";
     public string? ConnectedPeer { get; private set; }
 
@@ -94,6 +96,8 @@ public sealed class LinkHub : IDisposable
             _store.SaveToken(peer.InstanceId, response.Token);
             _session?.Dispose();
             _session = client;
+            PeerAddress = ToIpv4(endpoint.Address);
+            PeerInstanceId = peer.InstanceId;
             ConnectedPeer = response.Name;
             SetStatus($"Verbunden mit {response.Name}");
             PeerConnected?.Invoke(peer.InstanceId, response.Name);
@@ -261,6 +265,8 @@ public sealed class LinkHub : IDisposable
             _store.SaveToken(message.Id, tokenValue);
             await writer.WriteLineAsync(LinkMessage.ToLine(LinkMessage.Paired(InstanceId, ComputerName, tokenValue)));
             ConnectedPeer = message.Name;
+            PeerAddress = ToIpv4((client.Client.RemoteEndPoint as IPEndPoint)?.Address);
+            PeerInstanceId = message.Id;
             SetStatus($"Verbunden mit {message.Name}");
             PeerConnected?.Invoke(message.Id, message.Name);
             await KeepAliveAsync(reader, writer, sendPing: false, token);
@@ -388,6 +394,15 @@ public sealed class LinkHub : IDisposable
         return new IPAddress(bytes);
     }
 
+    private static IPAddress? ToIpv4(IPAddress? address)
+    {
+        if (address is null)
+            return null;
+        if (address.IsIPv4MappedToIPv6)
+            return address.MapToIPv4();
+        return address.AddressFamily == AddressFamily.InterNetwork ? address : null;
+    }
+
     private static void TryOpenFirewall()
     {
         try
@@ -396,7 +411,8 @@ public sealed class LinkHub : IDisposable
             var rules = new List<string>
             {
                 $"advfirewall firewall add rule name=\"PCAnalyse UDP\" dir=in action=allow protocol=UDP localport={LinkPorts.Udp} profile=domain,private,public",
-                $"advfirewall firewall add rule name=\"PCAnalyse TCP\" dir=in action=allow protocol=TCP localport={LinkPorts.Tcp} profile=domain,private,public"
+                $"advfirewall firewall add rule name=\"PCAnalyse TCP\" dir=in action=allow protocol=TCP localport={LinkPorts.Tcp} profile=domain,private,public",
+                $"advfirewall firewall add rule name=\"PCAnalyse Maus\" dir=in action=allow protocol=TCP localport={LinkPorts.InputTcp} profile=domain,private,public"
             };
             if (!string.IsNullOrWhiteSpace(exe))
             {

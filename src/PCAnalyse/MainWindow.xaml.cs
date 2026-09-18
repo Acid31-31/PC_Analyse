@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using Microsoft.Win32;
 using PCAnalyse.Core;
+using PCAnalyse.InputShare;
 using PCAnalyse.Services;
 using PCAnalyse.Setup;
 
@@ -17,6 +18,7 @@ public partial class MainWindow : Window
     private readonly string _projectRoot;
     private Button[] _navButtons = Array.Empty<Button>();
     private LinkHub? _hub;
+    private MouseShareService? _mouseShare;
     private IReadOnlyList<DiscoveredPeer> _peers = Array.Empty<DiscoveredPeer>();
 
     public MainWindow()
@@ -32,7 +34,11 @@ public partial class MainWindow : Window
             try { await UpdateUi.CheckAsync(this, UpdateChannel.Main, showIfCurrent: false); }
             catch { /* stiller Start, manuell über Update */ }
         };
-        Closed += (_, _) => _hub?.Dispose();
+        Closed += (_, _) =>
+        {
+            _mouseShare?.Dispose();
+            _hub?.Dispose();
+        };
     }
 
     private static string DetectProjectRoot()
@@ -259,6 +265,9 @@ public partial class MainWindow : Window
                 IsLocalWorker = false
             });
             RefreshPcList();
+            if (LinkProgress is not null)
+                LinkProgress.IsIndeterminate = false;
+            StartMouseShare();
         });
         _hub.PeersChanged += peers => Dispatcher.Invoke(() => OnPeers(peers));
         _hub.Start();
@@ -315,12 +324,41 @@ public partial class MainWindow : Window
                 ProjectPath = _projectRoot
             });
             RefreshPcList();
-            SetStatus($"Verbunden mit {response.Name} – ohne Passwort.");
+            SetStatus($"Verbunden mit {response.Name} – eine Maus für beide PCs.");
             LinkStatusDetail.Text = $"Verbunden mit {response.Name}";
+            if (LinkProgress is not null)
+                LinkProgress.IsIndeterminate = false;
+            StartMouseShare();
         }
         catch (Exception ex)
         {
             SetStatus("Verbindung fehlgeschlagen: " + ex.Message);
         }
+    }
+
+    private void PeerSide_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_hub?.ConnectedPeer is not null)
+            StartMouseShare();
+    }
+
+    private void StartMouseShare()
+    {
+        if (_hub?.PeerAddress is null)
+            return;
+        if (_mouseShare is null)
+        {
+            _mouseShare = new MouseShareService();
+            _mouseShare.StatusChanged += text => Dispatcher.Invoke(() =>
+            {
+                if (MouseShareText is not null)
+                    MouseShareText.Text = text;
+                SetStatus(text);
+            });
+        }
+        var side = PeerLeftRadio?.IsChecked == true ? PeerSide.Left : PeerSide.Right;
+        _mouseShare.Start(_hub.PeerAddress, _hub.PeerInstanceId, _hub.InstanceId, side);
+        if (MouseShareText is not null)
+            MouseShareText.Text = _mouseShare.Status;
     }
 }

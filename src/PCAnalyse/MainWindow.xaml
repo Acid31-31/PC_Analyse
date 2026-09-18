@@ -423,14 +423,25 @@
                            Foreground="{DynamicResource TextPrimary}" Margin="0,4,0,8"/>
                 <TextBlock Grid.Row="0" Margin="0,36,0,16" TextWrapping="Wrap" FontSize="13"
                            Foreground="{DynamicResource TextSecondary}"
-                           Text="Auf dem zweiten PC «PCAnalyse.Verbindung» starten. Dieser Rechner findet ihn selbst. Kein Passwort, keine manuelle Suche."/>
+                           Text="Auf dem zweiten PC «PCAnalyse.Verbindung» starten. Danach eine Maus für beide Rechner: Cursor über den Bildschirmrand schieben."/>
                 <Border Grid.Row="1" Padding="18" CornerRadius="8" Margin="0,0,0,16"
                         Background="{DynamicResource CardBackground}"
                         BorderBrush="{DynamicResource GroupBorder}" BorderThickness="1">
                     <StackPanel>
                         <TextBlock x:Name="LinkStatusDetail" Text="Suche im Netzwerk …"
                                    Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold"/>
-                        <ProgressBar IsIndeterminate="True" Margin="0,14,0,0"/>
+                        <TextBlock x:Name="MouseShareText" Margin="0,10,0,0" FontSize="13"
+                                   Foreground="{DynamicResource TextSecondary}"
+                                   Text="Maus: wartet auf Verbindung"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                            <TextBlock Text="Anderer PC steht" VerticalAlignment="Center" Margin="0,0,12,0"
+                                       Foreground="{DynamicResource TextSecondary}"/>
+                            <RadioButton x:Name="PeerRightRadio" Content="rechts" IsChecked="True" Margin="0,0,16,0"
+                                         Foreground="{DynamicResource TextPrimary}" Checked="PeerSide_Changed"/>
+                            <RadioButton x:Name="PeerLeftRadio" Content="links"
+                                         Foreground="{DynamicResource TextPrimary}" Checked="PeerSide_Changed"/>
+                        </StackPanel>
+                        <ProgressBar x:Name="LinkProgress" IsIndeterminate="True" Margin="0,14,0,0"/>
                     </StackPanel>
                 </Border>
                 <Border Grid.Row="2" Padding="18" CornerRadius="8"

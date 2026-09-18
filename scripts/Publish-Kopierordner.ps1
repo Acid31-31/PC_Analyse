@@ -42,6 +42,21 @@ New-Item -ItemType Directory -Force -Path $staging | Out-Null
 Publish-Package -Project (Join-Path $sourceRoot "src\PCAnalyse\PCAnalyse.csproj") -Destination $meinPc -ExeName "PCAnalyse.exe"
 Publish-Package -Project (Join-Path $sourceRoot "src\PCAnalyse.Verbindung\PCAnalyse.Verbindung.csproj") -Destination $zweiterPc -ExeName "PCAnalyse.Verbindung.exe"
 
+function Write-NetworkZip {
+    param([string]$Folder, [string]$ZipName)
+    $zipTmp = Join-Path $staging $ZipName
+    $zipDest = Join-Path $copyRoot $ZipName
+    if (Test-Path $zipTmp) { Remove-Item $zipTmp -Force }
+    Compress-Archive -Path (Join-Path $Folder "*") -DestinationPath $zipTmp -CompressionLevel Fastest -Force
+    Copy-Item $zipTmp $zipDest -Force
+}
+
+Write-NetworkZip -Folder $zweiterPc -ZipName "Zweiter PC.zip"
+Write-NetworkZip -Folder $meinPc -ZipName "Mein PC.zip"
+
 Write-Host "Kopierordner:"
 Write-Host "  $meinPc"
 Write-Host "  $zweiterPc"
+Write-Host "Netzwerk (eine Datei):"
+Write-Host "  $(Join-Path $copyRoot 'Zweiter PC.zip')"
+Write-Host "  $(Join-Path $copyRoot 'Mein PC.zip')"

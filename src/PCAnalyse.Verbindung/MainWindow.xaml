@@ -118,13 +118,15 @@
                 <TextBlock Text="Dieses Programm einfach starten und offen lassen."
                            Foreground="{DynamicResource TextSecondary}" FontSize="14"
                            HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center"/>
-                <TextBlock Text="Der andere PC findet diesen Rechner automatisch. Es wird kein Windows-Passwort gefragt."
+                <TextBlock Text="Der andere PC findet diesen Rechner automatisch. Eine Maus steuert beide: Cursor über den linken Rand schieben."
                            Foreground="{DynamicResource TextSecondary}" FontSize="14"
                            HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" Margin="0,8,0,24"/>
                 <ProgressBar x:Name="WaitBar" IsIndeterminate="True" Height="6" Margin="40,0"/>
                 <TextBlock x:Name="WaitText" Text="Wartet auf Verbindung …"
                            Foreground="{DynamicResource AccentBrush}" FontSize="16" FontWeight="SemiBold"
                            HorizontalAlignment="Center" Margin="0,20,0,0"/>
+                <TextBlock x:Name="MouseShareText" Foreground="{DynamicResource TextSecondary}" FontSize="13"
+                           HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" Margin="0,12,0,0"/>
             </StackPanel>
         </Border>
 

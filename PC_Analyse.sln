@@ -10,7 +10,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PCAnalyse.Tests", "tests\PC
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PCAnalyse.Verbindung", "src\PCAnalyse.Verbindung\PCAnalyse.Verbindung.csproj", "{A1B2C3D4-E5F6-7890-ABCD-444444444444}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PCAnalyse.Setup", "src\PCAnalyse.Setup\PCAnalyse.Setup.csproj", "{A1B2C3D4-E5F6-7890-ABCD-555555555555}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PCAnalyse.InputShare", "src\PCAnalyse.InputShare\PCAnalyse.InputShare.csproj", "{A1B2C3D4-E5F6-7890-ABCD-666666666666}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -38,5 +38,9 @@ Global
 		{A1B2C3D4-E5F6-7890-ABCD-555555555555}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A1B2C3D4-E5F6-7890-ABCD-555555555555}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A1B2C3D4-E5F6-7890-ABCD-555555555555}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-666666666666}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-666666666666}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-666666666666}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-666666666666}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

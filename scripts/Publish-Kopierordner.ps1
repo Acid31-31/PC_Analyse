@@ -1,0 +1,47 @@
+#Requires -Version 5.1
+$ErrorActionPreference = "Stop"
+$sourceRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+$copyRoot = "Z:\PC_Analyse"
+$meinPc = Join-Path $copyRoot "Mein PC"
+$zweiterPc = Join-Path $copyRoot "Zweiter PC"
+$staging = Join-Path $env:TEMP "PCAnalyse-publish"
+
+function Publish-Package {
+    param(
+        [string]$Project,
+        [string]$Destination,
+        [string]$ExeName
+    )
+
+    New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+
+    $out = Join-Path $staging ([IO.Path]::GetFileName($Destination))
+    if (Test-Path $out) { Remove-Item $out -Recurse -Force }
+
+    dotnet publish $Project -c Release -r win-x64 --self-contained true -o $out
+    if ($LASTEXITCODE -ne 0) { throw "Publish fehlgeschlagen: $Project" }
+
+    & robocopy $out $Destination /E /IS /IT /R:2 /W:1 | Out-Null
+    if ($LASTEXITCODE -ge 8) { throw "Kopieren fehlgeschlagen: $Destination" }
+    Copy-Item (Join-Path $out $ExeName) (Join-Path $Destination "Programm installieren.exe") -Force
+    Copy-Item (Join-Path $out $ExeName) (Join-Path $Destination "Programm deinstallieren.exe") -Force
+
+    Set-Content -Path (Join-Path $Destination "STARTEN.bat") -Encoding ASCII -Value @"
+@echo off
+cd /d "%~dp0"
+start "" "Programm installieren.exe"
+"@
+    Set-Content -Path (Join-Path $Destination "DEINSTALLIEREN.bat") -Encoding ASCII -Value @"
+@echo off
+cd /d "%~dp0"
+start "" "Programm deinstallieren.exe"
+"@
+}
+
+New-Item -ItemType Directory -Force -Path $staging | Out-Null
+Publish-Package -Project (Join-Path $sourceRoot "src\PCAnalyse\PCAnalyse.csproj") -Destination $meinPc -ExeName "PCAnalyse.exe"
+Publish-Package -Project (Join-Path $sourceRoot "src\PCAnalyse.Verbindung\PCAnalyse.Verbindung.csproj") -Destination $zweiterPc -ExeName "PCAnalyse.Verbindung.exe"
+
+Write-Host "Kopierordner:"
+Write-Host "  $meinPc"
+Write-Host "  $zweiterPc"

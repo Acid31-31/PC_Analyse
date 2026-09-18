@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <ApplicationTitle>PC Analyse Verbindung</ApplicationTitle>
+    <RootNamespace>PCAnalyse.Verbindung</RootNamespace>
+    <AssemblyName>PCAnalyse.Verbindung</AssemblyName>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\PCAnalyse.Core\PCAnalyse.Core.csproj" />
+    <ProjectReference Include="..\PCAnalyse.Setup\PCAnalyse.Setup.csproj" />
+  </ItemGroup>
+</Project>

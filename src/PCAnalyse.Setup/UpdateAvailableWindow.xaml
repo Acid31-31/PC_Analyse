@@ -1,0 +1,105 @@
+<Window x:Class="PCAnalyse.Setup.UpdateAvailableWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Update verfügbar"
+        Height="520" Width="580"
+        MinHeight="420" MinWidth="500"
+        WindowStartupLocation="CenterOwner"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        Background="{DynamicResource AppBackground}"
+        Foreground="{DynamicResource TextPrimary}"
+        FontFamily="Segoe UI">
+
+    <Window.Resources>
+        <Style x:Key="DlgBtn" TargetType="Button">
+            <Setter Property="MinWidth" Value="150"/>
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="Padding" Value="14,0"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource GroupBorder}"/>
+            <Setter Property="Background" Value="{DynamicResource CardBackground}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+        </Style>
+        <Style x:Key="DlgPrimaryBtn" TargetType="Button" BasedOn="{StaticResource DlgBtn}">
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextOnAccent}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+    </Window.Resources>
+
+    <Border BorderBrush="{DynamicResource GroupBorder}" BorderThickness="1">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="72"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <Border Grid.Row="0" Background="{DynamicResource HeaderBackground}"
+                    BorderBrush="{DynamicResource GroupBorder}" BorderThickness="0,0,0,1"
+                    MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+                <StackPanel VerticalAlignment="Center" Margin="22,0">
+                    <TextBlock Text="Update verfügbar" FontSize="18" FontWeight="Bold"
+                               Foreground="{DynamicResource HeaderForeground}"/>
+                    <TextBlock Text="Einheitliches Update über GitHub für beide PCs"
+                               FontSize="12" Foreground="{DynamicResource TextSecondary}" Margin="0,4,0,0"/>
+                </StackPanel>
+            </Border>
+
+            <Grid Grid.Row="1" Margin="22">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0" Margin="0,0,0,12">
+                    <TextBlock Text="Eine neuere Version ist auf GitHub verfügbar."
+                               FontSize="15" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="SizeTextBlock" Margin="0,10,0,0" FontSize="20" FontWeight="Bold"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+
+                <Border Grid.Row="1" x:Name="NotesBorder"
+                        BorderBrush="{DynamicResource GroupBorder}" BorderThickness="1"
+                        CornerRadius="8" Padding="12" Background="{DynamicResource CardBackground}">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <TextBlock x:Name="VersionTextBlock" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                            <TextBlock x:Name="NotesTextBlock" TextWrapping="Wrap" FontSize="12"
+                                       Foreground="{DynamicResource TextSecondary}"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Border>
+
+                <StackPanel x:Name="ProgressPanel" Grid.Row="2" Margin="0,12,0,0" Visibility="Collapsed">
+                    <TextBlock x:Name="DownloadSizeTextBlock" FontSize="18" FontWeight="Bold"
+                               TextWrapping="Wrap" Margin="0,0,0,10"/>
+                    <ProgressBar x:Name="UpdateProgressBar" Height="10" Minimum="0" Maximum="100" Value="0"
+                                 Foreground="{DynamicResource ProgressFill}"
+                                 Background="{DynamicResource ProgressTrack}"/>
+                    <Grid Margin="0,8,0,0">
+                        <TextBlock x:Name="StatusTextBlock" FontSize="12"
+                                   Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap"/>
+                        <TextBlock x:Name="PercentTextBlock" HorizontalAlignment="Right" FontSize="12"
+                                   FontWeight="SemiBold" Foreground="{DynamicResource ProgressFill}" Text="0 %"/>
+                    </Grid>
+                </StackPanel>
+            </Grid>
+
+            <Border Grid.Row="2" Background="{DynamicResource FooterBackground}"
+                    BorderBrush="{DynamicResource GroupBorder}" BorderThickness="0,1,0,0" Padding="16,12">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="UpdateButton" Content="Jetzt aktualisieren" Style="{StaticResource DlgPrimaryBtn}"
+                            Margin="0,0,8,0" Click="UpdateButton_Click"/>
+                    <Button x:Name="LaterButton" Content="Später" Style="{StaticResource DlgBtn}"
+                            Click="LaterButton_Click"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Border>
+</Window>

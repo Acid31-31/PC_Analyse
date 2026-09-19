@@ -5,7 +5,10 @@ $sourceRoot = Split-Path -Parent $PSScriptRoot
 $staging = Join-Path $env:TEMP "PCAnalyse-github-release"
 $version = (Select-Xml -Path (Join-Path $sourceRoot "Directory.Build.props") -XPath "//Version").Node.InnerText.Trim()
 if ([string]::IsNullOrWhiteSpace($version)) { $version = "1.0.1" }
-$localReleases = "Z:\PC_Analyse\Releases"
+$localReleases = Join-Path $staging "local-releases"
+if (Test-Path "Z:\PC_Analyse") {
+    $localReleases = "Z:\PC_Analyse\Releases"
+}
 
 if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $staging | Out-Null

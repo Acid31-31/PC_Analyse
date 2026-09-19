@@ -14,6 +14,24 @@ if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $staging | Out-Null
 New-Item -ItemType Directory -Force -Path $localReleases | Out-Null
 
+function Copy-LockedItem {
+    param([string]$Path, [string]$Destination)
+    $dir = Split-Path -Parent $Destination
+    if ($dir -and -not (Test-Path $dir)) {
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    }
+    for ($i = 1; $i -le 8; $i++) {
+        try {
+            Copy-Item $Path $Destination -Force
+            return
+        }
+        catch {
+            if ($i -eq 8) { throw }
+            Start-Sleep -Seconds 2
+        }
+    }
+}
+
 function New-AppZip {
     param([string]$PublishDir, [string]$ZipName)
 
@@ -23,7 +41,7 @@ function New-AppZip {
     if (Test-Path $zip) { Remove-Item $zip -Force }
     Compress-Archive -Path (Join-Path $PublishDir "*") -DestinationPath $zip -CompressionLevel Optimal -Force
     $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-    Copy-Item $zip (Join-Path $localReleases $ZipName) -Force
+    Copy-LockedItem $zip (Join-Path $localReleases $ZipName)
     return @{ Path = $zip; Hash = $hash; Name = $ZipName }
 }
 
@@ -39,7 +57,7 @@ function Publish-Zip {
     if (Test-Path $zip) { Remove-Item $zip -Force }
     Compress-Archive -Path (Join-Path $out "*") -DestinationPath $zip -Force
     $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-    Copy-Item $zip (Join-Path $localReleases $ZipName) -Force
+    Copy-LockedItem $zip (Join-Path $localReleases $ZipName)
     $app = New-AppZip -PublishDir $out -ZipName $AppZipName
     return @{ Path = $zip; Hash = $hash; Name = $ZipName; App = $app }
 }

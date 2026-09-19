@@ -20,7 +20,11 @@ function New-AppZip {
     $appDir = Join-Path $staging ("app-" + [IO.Path]::GetFileNameWithoutExtension($ZipName))
     if (Test-Path $appDir) { Remove-Item $appDir -Recurse -Force }
     New-Item -ItemType Directory -Force -Path $appDir | Out-Null
-    Copy-Item (Join-Path $PublishDir "PCAnalyse*") $appDir -Force
+    Get-ChildItem $PublishDir -File | Where-Object {
+        $_.Name -like "PCAnalyse*" -and (
+            $_.Extension -eq ".dll" -or $_.Name -like "*.deps.json"
+        )
+    } | Copy-Item -Destination $appDir -Force
     $zip = Join-Path $staging $ZipName
     if (Test-Path $zip) { Remove-Item $zip -Force }
     Compress-Archive -Path (Join-Path $appDir "*") -DestinationPath $zip -CompressionLevel Optimal -Force

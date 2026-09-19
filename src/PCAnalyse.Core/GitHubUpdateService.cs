@@ -208,6 +208,7 @@ public static class GitHubUpdateService
                 "Updates sind nur in einer Installation erlaubt. Bitte zuerst „Programm installieren.exe“ ausführen.");
         }
 
+        PrepareStagedHost(channel, stagedAppRoot, appRoot);
         var updaterExe = Path.Combine(stagedAppRoot, channel.ExeFileName);
         if (!File.Exists(updaterExe))
             throw new InvalidOperationException("Update-EXE im Paket nicht gefunden.");
@@ -452,11 +453,46 @@ public static class GitHubUpdateService
         return string.IsNullOrWhiteSpace(cleaned) ? "update.zip" : cleaned;
     }
 
+    internal static void PrepareStagedHost(UpdateChannel channel, string stagedAppRoot, string installDir)
+    {
+        stagedAppRoot = Path.GetFullPath(stagedAppRoot);
+        installDir = Path.GetFullPath(installDir);
+        if (!Directory.Exists(installDir))
+            throw new DirectoryNotFoundException("Installation nicht gefunden: " + installDir);
+
+        foreach (var file in Directory.GetFiles(installDir, "*", SearchOption.AllDirectories))
+        {
+            var relative = file[(installDir.Length)..].TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var dest = Path.Combine(stagedAppRoot, relative);
+            if (File.Exists(dest))
+                continue;
+            var dir = Path.GetDirectoryName(dest);
+            if (!string.IsNullOrWhiteSpace(dir))
+                Directory.CreateDirectory(dir);
+            File.Copy(file, dest);
+        }
+
+        var exeName = channel.ExeFileName;
+        var installedExe = Path.Combine(installDir, exeName);
+        if (!File.Exists(installedExe))
+            throw new FileNotFoundException("Installierte Programmdatei fehlt: " + exeName, installedExe);
+        File.Copy(installedExe, Path.Combine(stagedAppRoot, exeName), true);
+
+        var runtimeConfig = Path.ChangeExtension(exeName, ".runtimeconfig.json");
+        var installedConfig = Path.Combine(installDir, runtimeConfig);
+        if (File.Exists(installedConfig))
+            File.Copy(installedConfig, Path.Combine(stagedAppRoot, runtimeConfig), true);
+    }
+
     private static string? FindApplicationRoot(string extractPath, string exeName)
     {
         if (File.Exists(Path.Combine(extractPath, exeName)))
             return extractPath;
+        var dllName = Path.ChangeExtension(exeName, ".dll");
+        if (File.Exists(Path.Combine(extractPath, dllName)))
+            return extractPath;
         var nested = Directory.GetFiles(extractPath, exeName, SearchOption.AllDirectories)
+            .Concat(Directory.GetFiles(extractPath, dllName, SearchOption.AllDirectories))
             .OrderBy(path => path.Length)
             .FirstOrDefault();
         return nested is null ? null : Path.GetDirectoryName(nested);

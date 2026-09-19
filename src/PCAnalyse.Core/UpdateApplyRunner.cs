@@ -40,7 +40,8 @@ public static class UpdateApplyRunner
         targetRoot = Path.GetFullPath(targetRoot);
         if (!Directory.Exists(stagedRoot))
             throw new DirectoryNotFoundException("Update-Paket nicht gefunden: " + stagedRoot);
-        if (!File.Exists(Path.Combine(stagedRoot, channel.ExeFileName)))
+        if (!File.Exists(Path.Combine(stagedRoot, channel.ExeFileName))
+            && !File.Exists(Path.Combine(stagedRoot, Path.ChangeExtension(channel.ExeFileName, ".dll"))))
             throw new InvalidOperationException("Update-Paket enthält keine " + channel.ExeFileName + ".");
 
         Report(progress, 2, "Warte auf Beendigung der Anwendung…");
@@ -59,7 +60,7 @@ public static class UpdateApplyRunner
             Report(progress, 18, overlay
                 ? "Programmdateien werden aktualisiert…"
                 : "Dateien werden installiert…");
-            CopyTree(stagedRoot, targetRoot, cancellationToken, progress, 18, 92);
+            CopyTree(stagedRoot, targetRoot, cancellationToken, progress, 18, 92, overlay);
 
             Report(progress, 98, "Anwendung wird gestartet…");
             var exePath = Path.Combine(targetRoot, channel.ExeFileName);
@@ -202,20 +203,35 @@ public static class UpdateApplyRunner
         }
     }
 
+    internal static bool IsOverlayPayload(string fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+            return false;
+        var name = Path.GetFileName(fileName);
+        if (!name.StartsWith("PCAnalyse", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            return true;
+        return name.EndsWith(".deps.json", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static void CopyTree(
         string sourceRoot,
         string targetRoot,
         CancellationToken cancellationToken,
         IProgress<UpdateProgressInfo>? progress = null,
         int percentStart = 0,
-        int percentEnd = 100)
+        int percentEnd = 100,
+        bool overlayOnly = false)
     {
         Directory.CreateDirectory(targetRoot);
         var files = Directory.GetFiles(sourceRoot, "*", SearchOption.AllDirectories)
             .Where(file =>
             {
                 var name = Path.GetFileName(file);
-                return !SkipNames.Contains(name);
+                if (SkipNames.Contains(name))
+                    return false;
+                return !overlayOnly || IsOverlayPayload(name);
             })
             .ToArray();
         var total = Math.Max(1, files.Length);

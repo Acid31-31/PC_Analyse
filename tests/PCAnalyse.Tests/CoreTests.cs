@@ -103,3 +103,51 @@ public class GitHubUpdateServiceTests
             GitHubUpdateService.ExtractSha256(notes, "PCAnalyse-ZweiterPC.zip"));
     }
 }
+
+public class OverlayUpdateTests
+{
+    [Theory]
+    [InlineData("PCAnalyse.dll", true)]
+    [InlineData("PCAnalyse.Core.dll", true)]
+    [InlineData("PCAnalyse.deps.json", true)]
+    [InlineData("PCAnalyse.exe", false)]
+    [InlineData("PCAnalyse.runtimeconfig.json", false)]
+    [InlineData("coreclr.dll", false)]
+    [InlineData("hostfxr.dll", false)]
+    public void Overlay_copies_only_app_assemblies(string name, bool expected)
+    {
+        Assert.Equal(expected, UpdateApplyRunner.IsOverlayPayload(name));
+    }
+
+    [Fact]
+    public void Staged_host_keeps_new_dlls_and_installed_runtime()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "pcanalyse-tests", Guid.NewGuid().ToString("N"));
+        var install = Path.Combine(root, "install");
+        var staged = Path.Combine(root, "staged");
+        try
+        {
+            Directory.CreateDirectory(install);
+            Directory.CreateDirectory(staged);
+            File.WriteAllText(Path.Combine(install, "PCAnalyse.exe"), "old-exe");
+            File.WriteAllText(Path.Combine(install, "PCAnalyse.runtimeconfig.json"), "old-cfg");
+            File.WriteAllText(Path.Combine(install, "coreclr.dll"), "old-core");
+            File.WriteAllText(Path.Combine(install, "PCAnalyse.dll"), "old-dll");
+            File.WriteAllText(Path.Combine(staged, "PCAnalyse.dll"), "new-dll");
+            File.WriteAllText(Path.Combine(staged, "PCAnalyse.exe"), "new-exe");
+            File.WriteAllText(Path.Combine(staged, "PCAnalyse.runtimeconfig.json"), "new-cfg");
+
+            GitHubUpdateService.PrepareStagedHost(UpdateChannel.Main, staged, install);
+
+            Assert.Equal("new-dll", File.ReadAllText(Path.Combine(staged, "PCAnalyse.dll")));
+            Assert.Equal("old-exe", File.ReadAllText(Path.Combine(staged, "PCAnalyse.exe")));
+            Assert.Equal("old-cfg", File.ReadAllText(Path.Combine(staged, "PCAnalyse.runtimeconfig.json")));
+            Assert.Equal("old-core", File.ReadAllText(Path.Combine(staged, "coreclr.dll")));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, true);
+        }
+    }
+}

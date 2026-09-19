@@ -14,6 +14,8 @@ public sealed class AppUpdateInfo
     public long AssetId { get; set; }
     public long AssetSizeBytes { get; set; }
     public string ErrorMessage { get; set; } = "";
+    public string LocalPackagePath { get; set; } = "";
+    public bool FromLocalShare { get; set; }
 
     public string AssetSizeDisplay => FormatMegabytes(AssetSizeBytes);
 
@@ -21,7 +23,10 @@ public sealed class AppUpdateInfo
     {
         if (bytes <= 0)
             return "";
-        return string.Format(CultureInfo.GetCultureInfo("de-DE"), "{0:0.0} MB", bytes / (1024.0 * 1024.0));
+        var culture = CultureInfo.GetCultureInfo("de-DE");
+        if (bytes < 1024 * 1024)
+            return string.Format(culture, "{0:0} KB", bytes / 1024.0);
+        return string.Format(culture, "{0:0.0} MB", bytes / (1024.0 * 1024.0));
     }
 }
 

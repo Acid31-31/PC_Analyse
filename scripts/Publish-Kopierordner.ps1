@@ -54,9 +54,30 @@ function Write-NetworkZip {
 Write-NetworkZip -Folder $zweiterPc -ZipName "Zweiter PC.zip"
 Write-NetworkZip -Folder $meinPc -ZipName "Mein PC.zip"
 
+$releases = Join-Path $copyRoot "Releases"
+New-Item -ItemType Directory -Force -Path $releases | Out-Null
+$version = (Select-Xml -Path (Join-Path $sourceRoot "Directory.Build.props") -XPath "//Version").Node.InnerText.Trim()
+Set-Content -Path (Join-Path $releases "version.txt") -Value $version -Encoding ASCII
+
+function Write-AppZip {
+    param([string]$PublishFolder, [string]$ZipName)
+    $appDir = Join-Path $staging ("app-" + [IO.Path]::GetFileNameWithoutExtension($ZipName))
+    if (Test-Path $appDir) { Remove-Item $appDir -Recurse -Force }
+    New-Item -ItemType Directory -Force -Path $appDir | Out-Null
+    Copy-Item (Join-Path $PublishFolder "PCAnalyse*") $appDir -Force
+    $zip = Join-Path $releases $ZipName
+    if (Test-Path $zip) { Remove-Item $zip -Force }
+    Compress-Archive -Path (Join-Path $appDir "*") -DestinationPath $zip -CompressionLevel Optimal -Force
+}
+
+Write-AppZip -PublishFolder (Join-Path $staging "Mein PC") -ZipName "PCAnalyse-MeinPC-app.zip"
+Write-AppZip -PublishFolder (Join-Path $staging "Zweiter PC") -ZipName "PCAnalyse-ZweiterPC-app.zip"
+
 Write-Host "Kopierordner:"
 Write-Host "  $meinPc"
 Write-Host "  $zweiterPc"
 Write-Host "Netzwerk (eine Datei):"
 Write-Host "  $(Join-Path $copyRoot 'Zweiter PC.zip')"
 Write-Host "  $(Join-Path $copyRoot 'Mein PC.zip')"
+Write-Host "Kleine Updates:"
+Write-Host "  $releases"

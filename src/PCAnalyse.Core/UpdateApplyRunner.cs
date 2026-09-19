@@ -10,7 +10,8 @@ public static class UpdateApplyRunner
         "Programm deinstallieren.exe",
         "STARTEN.bat",
         "DEINSTALLIEREN.bat",
-        "createdump.exe"
+        "createdump.exe",
+        "Update-installieren.cmd"
     };
 
     public static bool TryParse(string[] args, out string stagedRoot, out string targetRoot, out int parentProcessId)
@@ -43,15 +44,21 @@ public static class UpdateApplyRunner
             throw new InvalidOperationException("Update-Paket enthält keine " + channel.ExeFileName + ".");
 
         Report(progress, 2, "Warte auf Beendigung der Anwendung…");
+        CloseRunningInstances(channel, targetRoot, parentProcessId);
         WaitForUnlock(channel, targetRoot, progress, cancellationToken, parentProcessId);
 
+        var overlay = !File.Exists(Path.Combine(stagedRoot, "coreclr.dll"));
         var backupRoot = Path.Combine(AppInfo.UpdateRoot, "backup-" + DateTime.Now.ToString("yyyyMMddHHmmss"));
         try
         {
-            Report(progress, 8, "Sicherungskopie wird erstellt…");
-            CopyTree(targetRoot, backupRoot, cancellationToken);
-
-            Report(progress, 18, "Dateien werden installiert…");
+            if (!overlay)
+            {
+                Report(progress, 8, "Sicherungskopie wird erstellt…");
+                CopyTree(targetRoot, backupRoot, cancellationToken);
+            }
+            Report(progress, 18, overlay
+                ? "Programmdateien werden aktualisiert…"
+                : "Dateien werden installiert…");
             CopyTree(stagedRoot, targetRoot, cancellationToken, progress, 18, 92);
 
             Report(progress, 98, "Anwendung wird gestartet…");
@@ -70,7 +77,11 @@ public static class UpdateApplyRunner
         }
         catch
         {
-            try { if (Directory.Exists(backupRoot)) CopyTree(backupRoot, targetRoot, CancellationToken.None); }
+            try
+            {
+                if (!overlay && Directory.Exists(backupRoot))
+                    CopyTree(backupRoot, targetRoot, CancellationToken.None);
+            }
             catch { /* Restore best effort */ }
             throw;
         }
@@ -78,6 +89,52 @@ public static class UpdateApplyRunner
         {
             try { if (Directory.Exists(backupRoot)) Directory.Delete(backupRoot, true); }
             catch { /* Backup aufräumen optional */ }
+        }
+    }
+
+    private static void CloseRunningInstances(UpdateChannel channel, string targetRoot, int parentProcessId)
+    {
+        var targetExe = Path.GetFullPath(Path.Combine(targetRoot, channel.ExeFileName));
+        var self = Environment.ProcessId;
+        foreach (var process in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(channel.ExeFileName)))
+        {
+            try
+            {
+                if (process.Id == self)
+                    continue;
+                string? path = null;
+                try { path = process.MainModule?.FileName; } catch { /* Zugriff auf fremde Prozesse */ }
+                var sameFile = !string.IsNullOrWhiteSpace(path)
+                    && string.Equals(Path.GetFullPath(path), targetExe, StringComparison.OrdinalIgnoreCase);
+                if (!sameFile && process.Id != parentProcessId)
+                    continue;
+                if (!process.HasExited)
+                    process.CloseMainWindow();
+            }
+            catch
+            {
+                // weiter versuchen
+            }
+        }
+
+        Thread.Sleep(800);
+        foreach (var process in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(channel.ExeFileName)))
+        {
+            try
+            {
+                if (process.Id == self || process.HasExited)
+                    continue;
+                string? path = null;
+                try { path = process.MainModule?.FileName; } catch { /* ignore */ }
+                var sameFile = !string.IsNullOrWhiteSpace(path)
+                    && string.Equals(Path.GetFullPath(path), targetExe, StringComparison.OrdinalIgnoreCase);
+                if (sameFile || process.Id == parentProcessId)
+                    process.Kill(entireProcessTree: true);
+            }
+            catch
+            {
+                // Dateisperre kommt danach
+            }
         }
     }
 
@@ -90,7 +147,7 @@ public static class UpdateApplyRunner
     {
         if (parentProcessId > 0)
         {
-            for (var i = 0; i < 80; i++)
+            for (var i = 0; i < 20; i++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 try
@@ -110,7 +167,7 @@ public static class UpdateApplyRunner
         }
 
         var lockFile = Path.Combine(targetRoot, channel.ExeFileName);
-        for (var attempt = 0; attempt < 80; attempt++)
+        for (var attempt = 0; attempt < 24; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!IsLocked(lockFile))

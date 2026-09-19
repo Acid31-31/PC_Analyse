@@ -25,11 +25,14 @@ public static class GitHubUpdateService
         var result = new AppUpdateInfo();
         try
         {
+            var local = TryLocalShareUpdate(channel);
             using var client = CreateApiClient();
             using var response = await client.GetAsync(AppInfo.GitHubLatestReleaseApiUrl, cancellationToken);
             var json = await response.Content.ReadAsStringAsync(cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
+                if (local is { UpdateAvailable: true })
+                    return local;
                 result.ErrorMessage = response.StatusCode == System.Net.HttpStatusCode.NotFound
                     ? "Noch kein GitHub-Release vorhanden."
                     : $"GitHub-Release konnte nicht gelesen werden ({(int)response.StatusCode}).";
@@ -41,30 +44,59 @@ public static class GitHubUpdateService
             result.ReleaseNotes = release?.Body ?? "";
             if (!TryParseReleaseVersion(result.ReleaseTag, out var remote))
             {
+                if (local is { UpdateAvailable: true })
+                    return local;
                 result.ErrorMessage = "Release-Version konnte nicht gelesen werden: " + result.ReleaseTag;
                 return result;
             }
 
             result.RemoteVersion = remote;
-            result.UpdateAvailable = remote > AppInfo.ApplicationVersion;
+            var gitNewer = remote > AppInfo.ApplicationVersion;
+            if (!gitNewer && local is not { UpdateAvailable: true })
+            {
+                result.UpdateAvailable = false;
+                return result;
+            }
+
+            if (local is { UpdateAvailable: true, RemoteVersion: not null }
+                && File.Exists(local.LocalPackagePath)
+                && (!gitNewer || local.RemoteVersion >= remote))
+            {
+                local.ReleaseNotes = string.IsNullOrWhiteSpace(local.ReleaseNotes)
+                    ? result.ReleaseNotes
+                    : local.ReleaseNotes;
+                return local;
+            }
+
+            result.UpdateAvailable = gitNewer;
             if (!result.UpdateAvailable)
                 return result;
 
+            var installDir = channel.TryResolveUpdateTargetDirectory() ?? AppInfo.GetApplicationDirectory();
+            var overlayOk = File.Exists(Path.Combine(installDir, "coreclr.dll"))
+                            || File.Exists(Path.Combine(installDir, "hostfxr.dll"));
+            var preferred = overlayOk ? channel.AppAssetFileName : channel.AssetFileName;
             var asset = release?.Assets?.FirstOrDefault(a =>
-                string.Equals(a.Name, channel.AssetFileName, StringComparison.OrdinalIgnoreCase));
+                            string.Equals(a.Name, preferred, StringComparison.OrdinalIgnoreCase))
+                        ?? release?.Assets?.FirstOrDefault(a =>
+                            string.Equals(a.Name, channel.AppAssetFileName, StringComparison.OrdinalIgnoreCase))
+                        ?? release?.Assets?.FirstOrDefault(a =>
+                            string.Equals(a.Name, channel.AssetFileName, StringComparison.OrdinalIgnoreCase));
             if (asset is null || string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl))
             {
+                if (local is { UpdateAvailable: true })
+                    return local;
                 result.UpdateAvailable = false;
-                result.ErrorMessage = "Kein Update-Paket (" + channel.AssetFileName + ") in der Release gefunden.";
+                result.ErrorMessage = "Kein Update-Paket in der Release gefunden.";
                 return result;
             }
 
             result.DownloadUrl = asset.BrowserDownloadUrl;
             result.AssetId = asset.Id;
-            result.AssetName = asset.Name ?? channel.AssetFileName;
+            result.AssetName = asset.Name ?? preferred;
             result.AssetSizeBytes = asset.Size;
             result.ExpectedSha256 = ExtractSha256(result.ReleaseNotes, result.AssetName);
-            if (string.IsNullOrWhiteSpace(result.ExpectedSha256))
+            if (string.IsNullOrWhiteSpace(result.ExpectedSha256) && local is not { UpdateAvailable: true })
             {
                 result.UpdateAvailable = false;
                 result.ErrorMessage = "Release enthält keine SHA256-Prüfsumme für " + result.AssetName + ".";
@@ -72,10 +104,16 @@ public static class GitHubUpdateService
         }
         catch (TaskCanceledException)
         {
+            var localRetry = TryLocalShareUpdate(channel);
+            if (localRetry is { UpdateAvailable: true })
+                return localRetry;
             result.ErrorMessage = "Update-Prüfung hat zu lange gedauert.";
         }
         catch (Exception ex)
         {
+            var localRetry = TryLocalShareUpdate(channel);
+            if (localRetry is { UpdateAvailable: true })
+                return localRetry;
             result.ErrorMessage = ex.Message;
         }
 
@@ -88,53 +126,62 @@ public static class GitHubUpdateService
         IProgress<UpdateProgressInfo>? progress,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(update.DownloadUrl))
-            throw new InvalidOperationException("Kein Update-Download verfügbar.");
-        if (!Uri.TryCreate(update.DownloadUrl, UriKind.Absolute, out var uri) || !IsTrustedDownloadUrl(uri))
-            throw new InvalidOperationException("Unsicherer Download-Link blockiert.");
-        if (string.IsNullOrWhiteSpace(update.ExpectedSha256))
-            throw new InvalidOperationException("Release enthält keine SHA256-Prüfsumme.");
-
         Directory.CreateDirectory(AppInfo.UpdateRoot);
-        var packagePath = Path.Combine(AppInfo.UpdateRoot, SanitizeFileName(update.AssetName));
+        var packagePath = Path.Combine(AppInfo.UpdateRoot, SanitizeFileName(
+            string.IsNullOrWhiteSpace(update.AssetName) ? "update.zip" : update.AssetName));
         var extractPath = Path.Combine(AppInfo.UpdateRoot, "staging-" + DateTime.Now.ToString("yyyyMMddHHmmss"));
         if (Directory.Exists(extractPath))
             Directory.Delete(extractPath, true);
 
-        Exception? lastError = null;
-        for (var attempt = 1; attempt <= 3; attempt++)
+        if (!string.IsNullOrWhiteSpace(update.LocalPackagePath) && File.Exists(update.LocalPackagePath))
         {
-            try
-            {
-                Report(progress, 4, attempt == 1
-                    ? "Update wird heruntergeladen…"
-                    : "Download-Versuch " + attempt + " …");
-                await DownloadFileAsync(uri, packagePath, update.AssetSizeBytes, progress, cancellationToken);
-                lastError = null;
-                break;
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex) when (attempt < 3)
-            {
-                lastError = ex;
-                Report(progress, 4, "Download unterbrochen, neuer Versuch …");
-                await Task.Delay(800, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                lastError = ex;
-            }
+            Report(progress, 10, "Update vom Netzwerklaufwerk …");
+            File.Copy(update.LocalPackagePath, packagePath, true);
+            Report(progress, 55, "Lokales Paket kopiert.");
         }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(update.DownloadUrl))
+                throw new InvalidOperationException("Kein Update-Download verfügbar.");
+            if (!Uri.TryCreate(update.DownloadUrl, UriKind.Absolute, out var uri) || !IsTrustedDownloadUrl(uri))
+                throw new InvalidOperationException("Unsicherer Download-Link blockiert.");
 
-        if (lastError is not null)
-            throw lastError;
+            Exception? lastError = null;
+            for (var attempt = 1; attempt <= 3; attempt++)
+            {
+                try
+                {
+                    Report(progress, 4, attempt == 1
+                        ? "Update wird heruntergeladen…"
+                        : "Download-Versuch " + attempt + " …");
+                    await DownloadFileAsync(uri, packagePath, update.AssetSizeBytes, progress, cancellationToken);
+                    lastError = null;
+                    break;
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (attempt < 3)
+                {
+                    lastError = ex;
+                    Report(progress, 4, "Download unterbrochen, neuer Versuch …");
+                    await Task.Delay(800, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    lastError = ex;
+                }
+            }
+
+            if (lastError is not null)
+                throw lastError;
+        }
 
         Report(progress, 78, "Prüfsumme wird verifiziert…");
         var actual = ComputeSha256Hex(packagePath);
-        if (!string.Equals(actual, update.ExpectedSha256, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(update.ExpectedSha256)
+            && !string.Equals(actual, update.ExpectedSha256, StringComparison.OrdinalIgnoreCase))
         {
             File.Delete(packagePath);
             throw new InvalidOperationException(
@@ -173,6 +220,7 @@ public static class GitHubUpdateService
             WorkingDirectory = stagedAppRoot,
             UseShellExecute = true
         });
+        Environment.Exit(0);
     }
 
     public static bool TryParseReleaseVersion(string tag, out Version version)
@@ -202,6 +250,58 @@ public static class GitHubUpdateService
         if (named.Success)
             return named.Groups[1].Value.ToLowerInvariant();
         return "";
+    }
+
+    private static AppUpdateInfo? TryLocalShareUpdate(UpdateChannel channel)
+    {
+        foreach (var dir in LocalReleaseDirectories())
+        {
+            try
+            {
+                var versionPath = Path.Combine(dir, "version.txt");
+                if (!File.Exists(versionPath))
+                    continue;
+                var tag = File.ReadAllText(versionPath).Trim();
+                if (!TryParseReleaseVersion(tag, out var version) || version <= AppInfo.ApplicationVersion)
+                    continue;
+
+                var overlayOk = File.Exists(Path.Combine(
+                    channel.TryResolveUpdateTargetDirectory() ?? AppInfo.GetApplicationDirectory(),
+                    "coreclr.dll"));
+                var zip = Path.Combine(dir, overlayOk ? channel.AppAssetFileName : channel.AssetFileName);
+                if (!File.Exists(zip))
+                    zip = Path.Combine(dir, channel.AppAssetFileName);
+                if (!File.Exists(zip))
+                    zip = Path.Combine(dir, channel.AssetFileName);
+                if (!File.Exists(zip))
+                    continue;
+
+                return new AppUpdateInfo
+                {
+                    UpdateAvailable = true,
+                    RemoteVersion = version,
+                    ReleaseTag = tag.StartsWith("v", StringComparison.OrdinalIgnoreCase) ? tag : "v" + tag,
+                    LocalPackagePath = zip,
+                    FromLocalShare = true,
+                    AssetName = Path.GetFileName(zip),
+                    AssetSizeBytes = new FileInfo(zip).Length,
+                    ExpectedSha256 = ComputeSha256Hex(zip),
+                    ReleaseNotes = "Update vom Netzwerklaufwerk, ohne GitHub-Download."
+                };
+            }
+            catch
+            {
+                // nächster Ordner
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> LocalReleaseDirectories()
+    {
+        yield return @"Z:\PC_Analyse\Releases";
+        yield return @"\\WIN-G2OC48399EJ\Data\PC_Analyse\Releases";
     }
 
     private static HttpClient CreateApiClient()

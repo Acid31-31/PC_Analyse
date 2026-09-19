@@ -84,8 +84,7 @@ public partial class UpdateAvailableWindow : Window
         }
         catch (OperationCanceledException)
         {
-            DialogResult = false;
-            Close();
+            System.Windows.Application.Current?.Shutdown();
         }
         catch (Exception ex)
         {
@@ -105,6 +104,7 @@ public partial class UpdateAvailableWindow : Window
             _updateCts?.Cancel();
             LaterButton.IsEnabled = false;
             StatusTextBlock.Text = "Update wird abgebrochen…";
+            System.Windows.Application.Current?.Shutdown();
             return;
         }
 
@@ -116,8 +116,9 @@ public partial class UpdateAvailableWindow : Window
     {
         if (!_isUpdating)
             return;
-        e.Cancel = true;
         _updateCts?.Cancel();
+        _isUpdating = false;
+        System.Windows.Application.Current?.Shutdown();
     }
 
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)

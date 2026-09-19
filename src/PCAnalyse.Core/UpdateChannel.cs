@@ -5,6 +5,7 @@ public sealed class UpdateChannel
     public required string ProductName { get; init; }
     public required string ExeFileName { get; init; }
     public required string AssetFileName { get; init; }
+    public required string AppAssetFileName { get; init; }
     public required string InstallPointerName { get; init; }
 
     public static UpdateChannel Main { get; } = new()
@@ -12,6 +13,7 @@ public sealed class UpdateChannel
         ProductName = "PC Analyse",
         ExeFileName = "PCAnalyse.exe",
         AssetFileName = "PCAnalyse-MeinPC.zip",
+        AppAssetFileName = "PCAnalyse-MeinPC-app.zip",
         InstallPointerName = "PC Analyse.install"
     };
 
@@ -20,6 +22,7 @@ public sealed class UpdateChannel
         ProductName = "PC Analyse Verbindung",
         ExeFileName = "PCAnalyse.Verbindung.exe",
         AssetFileName = "PCAnalyse-ZweiterPC.zip",
+        AppAssetFileName = "PCAnalyse-ZweiterPC-app.zip",
         InstallPointerName = "PC Analyse Verbindung.install"
     };
 

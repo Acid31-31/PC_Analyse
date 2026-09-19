@@ -41,19 +41,19 @@ public partial class UpdateApplyProgressWindow : Window
             await Task.Run(() => UpdateApplyRunner.ApplyUpdate(
                 _channel, _stagedRoot, _targetRoot, progress, _cts.Token, _parentProcessId), _cts.Token);
             _isApplying = false;
-            Close();
+            System.Windows.Application.Current?.Shutdown();
         }
         catch (OperationCanceledException)
         {
             _isApplying = false;
-            Close();
+            System.Windows.Application.Current?.Shutdown();
         }
         catch (Exception ex)
         {
             _isApplying = false;
             System.Windows.MessageBox.Show(this, ex.GetBaseException().Message, "Update fehlgeschlagen",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
-            Close();
+            System.Windows.Application.Current?.Shutdown();
         }
     }
 
@@ -63,8 +63,8 @@ public partial class UpdateApplyProgressWindow : Window
     {
         if (!_isApplying)
             return;
-        e.Cancel = true;
-        RequestCancel();
+        try { _cts?.Cancel(); } catch { /* ignorieren */ }
+        _isApplying = false;
     }
 
     private void RequestCancel()

@@ -65,8 +65,13 @@ public partial class UpdateAvailableWindow : Window
                 PercentTextBlock.Text = info.Percent + " %";
                 StatusTextBlock.Text = info.Message;
                 if (info.TotalBytes > 0)
-                    DownloadSizeTextBlock.Text = AppUpdateInfo.FormatMegabytes(info.BytesRead)
+                {
+                    var text = AppUpdateInfo.FormatMegabytes(info.BytesRead)
                         + " von " + AppUpdateInfo.FormatMegabytes(info.TotalBytes);
+                    if (info.BytesPerSecond > 0)
+                        text += "  ·  " + AppUpdateInfo.FormatMegabytes(info.BytesPerSecond) + "/s";
+                    DownloadSizeTextBlock.Text = text;
+                }
                 else if (info.BytesRead > 0)
                     DownloadSizeTextBlock.Text = AppUpdateInfo.FormatMegabytes(info.BytesRead) + " geladen";
             });

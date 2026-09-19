@@ -27,16 +27,18 @@ public sealed class AppUpdateInfo
 
 public sealed class UpdateProgressInfo
 {
-    public UpdateProgressInfo(int percent, string message, long bytesRead = 0, long totalBytes = 0)
+    public UpdateProgressInfo(int percent, string message, long bytesRead = 0, long totalBytes = 0, long bytesPerSecond = 0)
     {
         Percent = percent;
         Message = message;
         BytesRead = bytesRead;
         TotalBytes = totalBytes;
+        BytesPerSecond = bytesPerSecond;
     }
 
     public int Percent { get; }
     public string Message { get; }
     public long BytesRead { get; }
     public long TotalBytes { get; }
+    public long BytesPerSecond { get; }
 }

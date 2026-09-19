@@ -1,4 +1,9 @@
 using System.IO.Compression;
+using System.Net;
+using System.Net.Http;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -20,7 +25,7 @@ public static class GitHubUpdateService
         var result = new AppUpdateInfo();
         try
         {
-            using var client = CreateClient();
+            using var client = CreateApiClient();
             using var response = await client.GetAsync(AppInfo.GitHubLatestReleaseApiUrl, cancellationToken);
             var json = await response.Content.ReadAsStringAsync(cancellationToken);
             if (!response.IsSuccessStatusCode)
@@ -96,18 +101,36 @@ public static class GitHubUpdateService
         if (Directory.Exists(extractPath))
             Directory.Delete(extractPath, true);
 
-        Report(progress, 4, "Update wird heruntergeladen…");
-        using (var client = CreateClient())
-        using (var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken))
+        Exception? lastError = null;
+        for (var attempt = 1; attempt <= 3; attempt++)
         {
-            response.EnsureSuccessStatusCode();
-            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            await using var file = File.Create(packagePath);
-            await CopyWithProgressAsync(
-                stream, file,
-                response.Content.Headers.ContentLength ?? (update.AssetSizeBytes > 0 ? update.AssetSizeBytes : null),
-                5, 75, "Update wird heruntergeladen…", progress, cancellationToken);
+            try
+            {
+                Report(progress, 4, attempt == 1
+                    ? "Update wird heruntergeladen…"
+                    : "Download-Versuch " + attempt + " …");
+                await DownloadFileAsync(uri, packagePath, update.AssetSizeBytes, progress, cancellationToken);
+                lastError = null;
+                break;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (attempt < 3)
+            {
+                lastError = ex;
+                Report(progress, 4, "Download unterbrochen, neuer Versuch …");
+                await Task.Delay(800, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                lastError = ex;
+            }
         }
+
+        if (lastError is not null)
+            throw lastError;
 
         Report(progress, 78, "Prüfsumme wird verifiziert…");
         var actual = ComputeSha256Hex(packagePath);
@@ -181,12 +204,139 @@ public static class GitHubUpdateService
         return "";
     }
 
-    private static HttpClient CreateClient()
+    private static HttpClient CreateApiClient()
     {
-        var client = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+        var client = new HttpClient(CreateHandler()) { Timeout = TimeSpan.FromSeconds(25) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd(AppInfo.ProductFamily + "/" + AppInfo.DisplayVersion);
         client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
         return client;
+    }
+
+    private static HttpClient CreateDownloadClient()
+    {
+        var client = new HttpClient(CreateHandler()) { Timeout = TimeSpan.FromHours(1) };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(AppInfo.ProductFamily + "/" + AppInfo.DisplayVersion);
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/octet-stream");
+        return client;
+    }
+
+    private static SocketsHttpHandler CreateHandler() =>
+        new()
+        {
+            AutomaticDecompression = DecompressionMethods.All,
+            ConnectTimeout = TimeSpan.FromSeconds(20),
+            PooledConnectionLifetime = TimeSpan.FromMinutes(2),
+            ConnectCallback = ConnectIpv4Async
+        };
+
+    private static async ValueTask<Stream> ConnectIpv4Async(SocketsHttpConnectionContext context, CancellationToken cancellationToken)
+    {
+        var addresses = await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, cancellationToken);
+        var ipv4 = addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork)
+                   ?? throw new InvalidOperationException("Kein IPv4 für " + context.DnsEndPoint.Host);
+        var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
+        {
+            NoDelay = true
+        };
+        try
+        {
+            TryBindBestInterface(socket, ipv4);
+            await socket.ConnectAsync(ipv4, context.DnsEndPoint.Port, cancellationToken);
+            return new NetworkStream(socket, ownsSocket: true);
+        }
+        catch
+        {
+            socket.Dispose();
+            throw;
+        }
+    }
+
+    private static void TryBindBestInterface(Socket socket, IPAddress destination)
+    {
+        try
+        {
+            var bytes = destination.GetAddressBytes();
+            if (bytes.Length != 4)
+                return;
+            var dest = BitConverter.ToUInt32(bytes, 0);
+            if (GetBestInterface(dest, out var index) != 0)
+                return;
+            foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (nic.OperationalStatus != OperationalStatus.Up)
+                    continue;
+                int nicIndex;
+                try { nicIndex = nic.GetIPProperties().GetIPv4Properties().Index; }
+                catch { continue; }
+                if (nicIndex != (int)index)
+                    continue;
+                var local = nic.GetIPProperties().UnicastAddresses
+                    .FirstOrDefault(a => a.Address.AddressFamily == AddressFamily.InterNetwork)
+                    ?.Address;
+                if (local is null)
+                    return;
+                socket.Bind(new IPEndPoint(local, 0));
+                return;
+            }
+        }
+        catch
+        {
+            // Standard-Routing verwenden
+        }
+    }
+
+    [DllImport("iphlpapi.dll")]
+    private static extern int GetBestInterface(uint destAddr, out uint bestIfIndex);
+
+    private static async Task DownloadFileAsync(
+        Uri uri,
+        string packagePath,
+        long expectedSize,
+        IProgress<UpdateProgressInfo>? progress,
+        CancellationToken cancellationToken)
+    {
+        long existing = 0;
+        if (File.Exists(packagePath))
+        {
+            existing = new FileInfo(packagePath).Length;
+            if (expectedSize > 0 && existing == expectedSize)
+                return;
+            if (expectedSize > 0 && existing > expectedSize)
+            {
+                File.Delete(packagePath);
+                existing = 0;
+            }
+        }
+
+        using var client = CreateDownloadClient();
+        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+        if (existing > 0)
+            request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(existing, null);
+
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (existing > 0 && response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
+            return;
+        response.EnsureSuccessStatusCode();
+
+        var total = response.Content.Headers.ContentLength;
+        if (response.StatusCode != HttpStatusCode.PartialContent)
+        {
+            existing = 0;
+            total ??= expectedSize > 0 ? expectedSize : null;
+        }
+        else if (total is not null)
+            total += existing;
+        else if (expectedSize > 0)
+            total = expectedSize;
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        await using var file = new FileStream(
+            packagePath,
+            existing > 0 ? FileMode.Append : FileMode.Create,
+            FileAccess.Write,
+            FileShare.None,
+            256 * 1024);
+        await CopyWithProgressAsync(stream, file, total, existing, 5, 75, progress, cancellationToken);
     }
 
     private static bool IsTrustedDownloadUrl(Uri uri) =>
@@ -245,14 +395,15 @@ public static class GitHubUpdateService
         Stream source,
         Stream destination,
         long? totalBytes,
+        long alreadyRead,
         int percentStart,
         int percentEnd,
-        string message,
         IProgress<UpdateProgressInfo>? progress,
         CancellationToken cancellationToken)
     {
-        var buffer = new byte[81920];
-        long totalRead = 0;
+        var buffer = new byte[256 * 1024];
+        long totalRead = alreadyRead;
+        var started = DateTime.UtcNow;
         int read;
         while ((read = await source.ReadAsync(buffer, cancellationToken)) > 0)
         {
@@ -261,8 +412,25 @@ public static class GitHubUpdateService
             var percent = percentStart;
             if (totalBytes is > 0)
                 percent = percentStart + (int)(totalRead * (percentEnd - percentStart) / totalBytes.Value);
-            Report(progress, percent, message, totalRead, totalBytes.GetValueOrDefault());
+            var elapsed = Math.Max(0.5, (DateTime.UtcNow - started).TotalSeconds);
+            var speed = (totalRead - alreadyRead) / elapsed;
+            var remain = totalBytes is > 0 && speed > 1
+                ? TimeSpan.FromSeconds(Math.Max(0, (totalBytes.Value - totalRead) / speed))
+                : (TimeSpan?)null;
+            var message = remain is null
+                ? "Update wird heruntergeladen…"
+                : "Update wird heruntergeladen … noch ca. " + FormatEta(remain.Value);
+            Report(progress, percent, message, totalRead, totalBytes.GetValueOrDefault(), (long)speed);
         }
+    }
+
+    private static string FormatEta(TimeSpan eta)
+    {
+        if (eta.TotalHours >= 1)
+            return (int)eta.TotalHours + " Std. " + eta.Minutes + " Min.";
+        if (eta.TotalMinutes >= 1)
+            return (int)eta.TotalMinutes + " Min.";
+        return Math.Max(1, (int)eta.TotalSeconds) + " Sek.";
     }
 
     private static string ComputeSha256Hex(string filePath)
@@ -276,8 +444,9 @@ public static class GitHubUpdateService
         int percent,
         string message,
         long bytesRead = 0,
-        long totalBytes = 0) =>
-        progress?.Report(new UpdateProgressInfo(percent, message, bytesRead, totalBytes));
+        long totalBytes = 0,
+        long bytesPerSecond = 0) =>
+        progress?.Report(new UpdateProgressInfo(percent, message, bytesRead, totalBytes, bytesPerSecond));
 
     private sealed class GitHubRelease
     {

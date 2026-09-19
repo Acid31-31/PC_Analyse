@@ -31,7 +31,10 @@ public static class InstallationService
         Remember(product, targetDir);
 
         progress?.Report("Desktop-Verknüpfung wird erstellt…");
-        DesktopShortcutService.TryCreate(product, exe, out _);
+        if (DesktopShortcutService.TryCreate(product, exe, out var shortcut))
+            progress?.Report("Desktop-Verknüpfung: " + Path.GetFileName(shortcut));
+        else
+            progress?.Report("Verknüpfung fehlgeschlagen: " + shortcut);
     }
 
     public static void Uninstall(ProductDefinition product, string installDir)

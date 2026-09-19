@@ -86,11 +86,14 @@ public partial class InstallWizardWindow : Window
         try
         {
             await Task.Run(() => InstallationService.Install(_product, LaunchMode.AppDirectory, target, progress));
-            FinishTitle.Text = "Installation abgeschlossen";
-            FinishMessageTextBlock.Text = _product.ProductName
-                + " ist eingerichtet.\nBitte künftig die Desktop-Verknüpfung verwenden.";
-            ShowStep(3);
             var exe = Path.Combine(target, _product.ExeFileName);
+            DesktopShortcutService.TryCreate(_product, exe, out var shortcutMsg);
+            FinishTitle.Text = "Installation abgeschlossen";
+            FinishMessageTextBlock.Text = File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), _product.ShortcutFileName))
+                                          || File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), _product.ShortcutFileName))
+                ? _product.ProductName + " ist eingerichtet.\nDesktop-Verknüpfung: " + _product.ShortcutFileName
+                : _product.ProductName + " ist eingerichtet, aber die Desktop-Verknüpfung fehlt:\n" + shortcutMsg;
+            ShowStep(3);
             if (LaunchCheckBox.IsChecked == true && File.Exists(exe))
             {
                 Process.Start(new ProcessStartInfo

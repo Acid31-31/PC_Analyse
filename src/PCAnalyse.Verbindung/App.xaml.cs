@@ -29,5 +29,6 @@ public partial class App : Application
 
         MainWindow = new MainWindow();
         MainWindow.Show();
+        DesktopShortcutService.EnsureForRunningApp(ProductDefinition.Verbindung);
     }
 }

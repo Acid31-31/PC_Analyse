@@ -66,7 +66,7 @@ public partial class MainWindow : Window
                 StatusText.Text = text;
             });
         }
-        _mouseShare.Start(_hub.PeerAddress, _hub.PeerInstanceId, _hub.InstanceId, PeerSide.Left);
+        _mouseShare.Start(_hub.PeerAddress, _hub.PeerInstanceId, _hub.InstanceId, PeerSide.Left, followPeerSide: true);
         MouseShareText.Text = _mouseShare.Status;
     }
 
@@ -88,11 +88,6 @@ public partial class MainWindow : Window
         _deskShare.Start(_hub.PeerAddress, _hub.PeerInstanceId, _hub.InstanceId);
         if (DeskShareText is not null)
             DeskShareText.Text = _deskShare.Status;
-    }
-
-    private void SwitchMouse_Click(object sender, RoutedEventArgs e)
-    {
-        _mouseShare?.SwitchNow();
     }
 
     private void ScreenshotPeer_Click(object sender, RoutedEventArgs e) => _deskShare?.RequestScreenshot();

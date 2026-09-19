@@ -426,7 +426,7 @@
                            Foreground="{DynamicResource TextPrimary}" Margin="0,4,0,8"/>
                 <TextBlock Grid.Row="0" Margin="0,36,0,16" TextWrapping="Wrap" FontSize="13"
                            Foreground="{DynamicResource TextSecondary}"
-                           Text="Auf dem zweiten PC «PCAnalyse.Verbindung» starten. Eine Maus für beide Rechner, Dateien rüberziehen, Screenshot und Zwischenablage teilen."/>
+                           Text="Auf dem zweiten PC «PCAnalyse.Verbindung» starten. Läuft das Programm, kann jeder mit seiner Maus über den Rand zum anderen Rechner – Dateien ins Fenster ziehen."/>
                 <Border Grid.Row="1" Padding="18" CornerRadius="8" Margin="0,0,0,16"
                         Background="{DynamicResource CardBackground}"
                         BorderBrush="{DynamicResource GroupBorder}" BorderThickness="1">
@@ -444,9 +444,6 @@
                             <RadioButton x:Name="PeerLeftRadio" Content="links"
                                          Foreground="{DynamicResource TextPrimary}" Checked="PeerSide_Changed"/>
                         </StackPanel>
-                        <Button Content="Maus auf den anderen PC" Style="{StaticResource PrimaryActionBtn}"
-                                HorizontalAlignment="Left" Margin="0,16,0,0" Padding="18,10"
-                                Click="SwitchMouse_Click"/>
                         <TextBlock x:Name="DeskShareText" Margin="0,14,0,0" FontSize="13"
                                    Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap"
                                    Text="Dateien: wartet auf Verbindung"/>

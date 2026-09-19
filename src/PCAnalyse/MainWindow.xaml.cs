@@ -344,17 +344,6 @@ public partial class MainWindow : Window
         _mouseShare?.SetPeerSide(side);
     }
 
-    private void SwitchMouse_Click(object sender, RoutedEventArgs e)
-    {
-        if (_mouseShare is null)
-        {
-            SetStatus("Erst verbinden, dann Maus rüberschieben.");
-            return;
-        }
-
-        _mouseShare.SwitchNow();
-    }
-
     private void StartMouseShare()
     {
         if (_hub?.PeerAddress is null)

@@ -20,7 +20,9 @@ public sealed class MouseShareService : IDisposable
     private const byte MsgWheel = 5;
     private const byte MsgKey = 6;
     private const byte MsgLeave = 7;
-    private const int EdgePixels = 8;
+    private const byte MsgSide = 8;
+    private const int EdgePixels = 6;
+    private const int ParkPixels = 90;
 
     private readonly object _sendLock = new();
     private readonly object _sessionLock = new();
@@ -46,6 +48,12 @@ public sealed class MouseShareService : IDisposable
     private bool _leftDown;
     private bool _rightDown;
     private bool _midDown;
+    private volatile bool _edgeArmed = true;
+    private volatile int _pendingX;
+    private volatile int _pendingY;
+    private volatile int _pendingSeq;
+    private int _sentSeq;
+    private volatile bool _followPeerSide;
 
     public PeerSide PeerSide { get; private set; } = PeerSide.Right;
     public string Status { get; private set; } = "Maus: getrennt";
@@ -57,7 +65,7 @@ public sealed class MouseShareService : IDisposable
         _keyProc = KeyHook;
     }
 
-    public void Start(IPAddress? peerAddress, string? peerId, string localId, PeerSide peerSide)
+    public void Start(IPAddress? peerAddress, string? peerId, string localId, PeerSide peerSide, bool followPeerSide = false)
     {
         if (peerAddress is null)
         {
@@ -65,9 +73,11 @@ public sealed class MouseShareService : IDisposable
             return;
         }
 
+        _followPeerSide = followPeerSide;
         if (_cts is { IsCancellationRequested: false })
         {
-            PeerSide = peerSide;
+            if (!followPeerSide)
+                SetPeerSide(peerSide);
             return;
         }
 
@@ -82,7 +92,14 @@ public sealed class MouseShareService : IDisposable
         SetStatus("Maus: verbinde mit " + peerAddress + " …");
     }
 
-    public void SetPeerSide(PeerSide side) => PeerSide = side;
+    public void SetPeerSide(PeerSide side)
+    {
+        if (PeerSide == side)
+            return;
+        PeerSide = side;
+        SendSide();
+        SetStatus(ConnectedStatus());
+    }
 
     public void SwitchNow()
     {
@@ -156,6 +173,7 @@ public sealed class MouseShareService : IDisposable
 
             PollCursor();
             PollButtons();
+            FlushPendingMove();
             Thread.Sleep(8);
         }
     }
@@ -205,12 +223,7 @@ public sealed class MouseShareService : IDisposable
             return;
         }
 
-        Send(writer =>
-        {
-            writer.Write(MsgMove);
-            writer.Write(_remoteX);
-            writer.Write(_remoteY);
-        });
+        QueueMove(_remoteX, _remoteY);
     }
 
     private void PollButtons()
@@ -325,12 +338,13 @@ public sealed class MouseShareService : IDisposable
             _stream = client.GetStream();
             _connected = true;
             _cursorHere = true;
+            _edgeArmed = true;
+            _ignoreEdgeUntil = DateTime.UtcNow.AddMilliseconds(400);
         }
 
         SendHello();
-        SetStatus(PeerSide == PeerSide.Right
-            ? "Maus verbunden – rechten Rand oder Strg+Alt+Pfeil rechts"
-            : "Maus verbunden – linken Rand oder Strg+Alt+Pfeil links");
+        SendSide();
+        SetStatus(ConnectedStatus());
         try
         {
             await ReceiveLoopAsync(token);
@@ -363,8 +377,40 @@ public sealed class MouseShareService : IDisposable
             writer.Write(MsgHello);
             writer.Write(screen.Width);
             writer.Write(screen.Height);
+            writer.Write(SideByte(PeerSide));
         });
     }
+
+    private void SendSide()
+    {
+        if (!_connected)
+            return;
+        Send(writer =>
+        {
+            writer.Write(MsgSide);
+            writer.Write(SideByte(PeerSide));
+        });
+    }
+
+    private static byte SideByte(PeerSide side) => (byte)(side == PeerSide.Right ? 0 : 1);
+
+    private void ApplySideFromPeer(byte peerSideByte)
+    {
+        if (!_followPeerSide)
+            return;
+        var peerThinksWeAre = peerSideByte == 0 ? PeerSide.Right : PeerSide.Left;
+        var ours = peerThinksWeAre == PeerSide.Right ? PeerSide.Left : PeerSide.Right;
+        if (PeerSide == ours)
+            return;
+        PeerSide = ours;
+        if (_cursorHere)
+            SetStatus(ConnectedStatus());
+    }
+
+    private string ConnectedStatus() =>
+        PeerSide == PeerSide.Right
+            ? "Maus aktiv – über den rechten Rand zum anderen PC, Dateien ins Fenster ziehen"
+            : "Maus aktiv – über den linken Rand zum anderen PC, Dateien ins Fenster ziehen";
 
     private async Task ReceiveLoopAsync(CancellationToken token)
     {
@@ -379,9 +425,14 @@ public sealed class MouseShareService : IDisposable
             switch (buffer[0])
             {
                 case MsgHello:
-                    if (await ReadExactAsync(_stream, buffer, 8, token) == 0) return;
+                    if (await ReadExactAsync(_stream, buffer, 9, token) == 0) return;
                     _remoteW = Math.Max(1, BitConverter.ToInt32(buffer, 0));
                     _remoteH = Math.Max(1, BitConverter.ToInt32(buffer, 4));
+                    ApplySideFromPeer(buffer[8]);
+                    break;
+                case MsgSide:
+                    if (await ReadExactAsync(_stream, buffer, 1, token) == 0) return;
+                    ApplySideFromPeer(buffer[0]);
                     break;
                 case MsgEnter:
                     if (await ReadExactAsync(_stream, buffer, 9, token) == 0) return;
@@ -467,12 +518,7 @@ public sealed class MouseShareService : IDisposable
                 return 1;
             }
 
-            Send(writer =>
-            {
-                writer.Write(MsgMove);
-                writer.Write(_remoteX);
-                writer.Write(_remoteY);
-            });
+            QueueMove(_remoteX, _remoteY);
             return 1;
         }
 
@@ -558,26 +604,43 @@ public sealed class MouseShareService : IDisposable
         var screen = Native.VirtualScreen();
         yNorm = screen.Height <= 1 ? 0.5f : (y - screen.Y) / (float)(screen.Height - 1);
         yNorm = Math.Clamp(yNorm, 0f, 1f);
+        if (!_edgeArmed)
+        {
+            TryArmEdge(screen, x);
+            return false;
+        }
+
         return PeerSide == PeerSide.Right
             ? x >= screen.Right - EdgePixels
             : x <= screen.X + EdgePixels;
     }
 
+    private void TryArmEdge(ScreenBounds screen, int x)
+    {
+        var inner = ParkPixels + 40;
+        if (x > screen.X + inner && x < screen.Right - inner)
+            _edgeArmed = true;
+    }
+
     private bool HitReturnEdge()
     {
-        return PeerSide == PeerSide.Right ? _remoteX <= EdgePixels : _remoteX >= _remoteW - 1 - EdgePixels;
+        return PeerSide == PeerSide.Right
+            ? _remoteX <= EdgePixels
+            : _remoteX >= _remoteW - 1 - EdgePixels;
     }
 
     private void SwitchToPeer(float yNorm)
     {
         _cursorHere = false;
+        _edgeArmed = false;
         _leftDown = _rightDown = _midDown = false;
-        _ignoreEdgeUntil = DateTime.UtcNow.AddMilliseconds(500);
+        _pendingSeq = _sentSeq;
+        _ignoreEdgeUntil = DateTime.UtcNow.AddMilliseconds(1200);
         var screen = Native.VirtualScreen();
         _centerX = screen.X + screen.Width / 2;
         _centerY = screen.Y + screen.Height / 2;
         Native.SetCursorPos(_centerX, _centerY);
-        _remoteX = PeerSide == PeerSide.Right ? EdgePixels + 2 : _remoteW - EdgePixels - 3;
+        _remoteX = PeerSide == PeerSide.Right ? ParkPixels : Math.Max(0, _remoteW - ParkPixels);
         _remoteY = Math.Clamp((int)(yNorm * (_remoteH - 1)), 0, _remoteH - 1);
         var enterEdge = (byte)(PeerSide == PeerSide.Right ? 0 : 1);
         Send(writer =>
@@ -587,34 +650,61 @@ public sealed class MouseShareService : IDisposable
             writer.Write(yNorm);
             writer.Write(PeerSide == PeerSide.Right ? 0f : 1f);
         });
-        SetStatus("Maus auf dem anderen PC – Rand zurück oder Strg+Alt+Pfeil");
+        QueueMove(_remoteX, _remoteY);
+        SetStatus("Maus auf dem anderen PC – über den gegenüberliegenden Rand zurück");
     }
 
     private void TakeCursorFromNetwork(byte edge, float yNorm, float xNorm)
     {
         _cursorHere = true;
-        _ignoreEdgeUntil = DateTime.UtcNow.AddMilliseconds(500);
+        _edgeArmed = false;
+        _ignoreEdgeUntil = DateTime.UtcNow.AddMilliseconds(1200);
         Native.ClipCursor(IntPtr.Zero);
         var screen = Native.VirtualScreen();
-        var x = edge == 0 ? screen.X + EdgePixels : screen.Right - EdgePixels;
-        if (xNorm > 0.5f)
-            x = screen.Right - EdgePixels;
+        var fromRight = edge != 0 || xNorm > 0.5f;
+        var x = fromRight
+            ? screen.Right - ParkPixels
+            : screen.X + ParkPixels;
         var y = screen.Y + (int)(Math.Clamp(yNorm, 0f, 1f) * (screen.Height - 1));
         Native.SetCursorPos(x, y);
-        SetStatus("Maus auf diesem PC");
+        SetStatus("Maus auf diesem PC – vom Rand wegziehen, dann wieder rüber");
     }
 
     private void ReturnCursorHere()
     {
         _cursorHere = true;
-        _ignoreEdgeUntil = DateTime.UtcNow.AddMilliseconds(500);
+        _edgeArmed = false;
+        _pendingSeq = _sentSeq;
+        _ignoreEdgeUntil = DateTime.UtcNow.AddMilliseconds(1200);
         Native.ClipCursor(IntPtr.Zero);
         var screen = Native.VirtualScreen();
-        var x = PeerSide == PeerSide.Right ? screen.Right - EdgePixels - 4 : screen.X + EdgePixels + 4;
+        var x = PeerSide == PeerSide.Right
+            ? screen.Right - ParkPixels
+            : screen.X + ParkPixels;
         Native.SetCursorPos(x, _centerY == 0 ? screen.Y + screen.Height / 2 : _centerY);
-        SetStatus(PeerSide == PeerSide.Right
-            ? "Maus auf diesem PC – rechts rüber oder Strg+Alt+→"
-            : "Maus auf diesem PC – links rüber oder Strg+Alt+←");
+        SetStatus(ConnectedStatus());
+    }
+
+    private void QueueMove(int x, int y)
+    {
+        _pendingX = x;
+        _pendingY = y;
+        _pendingSeq++;
+    }
+
+    private void FlushPendingMove()
+    {
+        if (_cursorHere || !_connected || _pendingSeq == _sentSeq)
+            return;
+        var x = _pendingX;
+        var y = _pendingY;
+        _sentSeq = _pendingSeq;
+        Send(writer =>
+        {
+            writer.Write(MsgMove);
+            writer.Write(x);
+            writer.Write(y);
+        });
     }
 
     private void SendLeave() => Send(writer => writer.Write(MsgLeave));

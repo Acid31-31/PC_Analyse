@@ -3,6 +3,7 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>PCAnalyse.InputShare</RootNamespace>
     <AssemblyName>PCAnalyse.InputShare</AssemblyName>
   </PropertyGroup>

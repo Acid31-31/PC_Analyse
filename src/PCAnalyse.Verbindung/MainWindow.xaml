@@ -1,13 +1,16 @@
 <Window x:Class="PCAnalyse.Verbindung.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="PC Analyse Verbindung" Height="520" Width="720"
+        Title="PC Analyse Verbindung" Height="680" Width="720"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
         ResizeMode="CanResize"
         Background="{DynamicResource AppBackground}"
         Foreground="{DynamicResource TextPrimary}"
         FontFamily="Segoe UI"
+        AllowDrop="True"
+        DragOver="Window_DragOver"
+        Drop="Window_Drop"
         Closed="Window_Closed">
 
     <Window.Resources>
@@ -118,7 +121,7 @@
                 <TextBlock Text="Dieses Programm einfach starten und offen lassen."
                            Foreground="{DynamicResource TextSecondary}" FontSize="14"
                            HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center"/>
-                <TextBlock Text="Der andere PC findet diesen Rechner automatisch. Eine Maus steuert beide: Cursor über den linken Rand schieben."
+                <TextBlock Text="Der andere PC findet diesen Rechner automatisch. Maus über den Rand, Dateien hierher ziehen, Screenshot und Zwischenablage teilen."
                            Foreground="{DynamicResource TextSecondary}" FontSize="14"
                            HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" Margin="0,8,0,24"/>
                 <ProgressBar x:Name="WaitBar" IsIndeterminate="True" Height="6" Margin="40,0"/>
@@ -131,6 +134,29 @@
                         Margin="0,18,0,0" Padding="18,10" HorizontalAlignment="Center"
                         Background="{DynamicResource AccentBrush}" Foreground="{DynamicResource TextOnAccent}"
                         BorderThickness="0" FontWeight="SemiBold" Cursor="Hand"/>
+                <TextBlock x:Name="DeskShareText" Foreground="{DynamicResource TextSecondary}" FontSize="13"
+                           HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" Margin="0,12,0,0"/>
+                <Border Margin="40,14,40,0" Padding="14" CornerRadius="6"
+                        BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1"
+                        Background="{DynamicResource AccentSoftBrush}"
+                        AllowDrop="True" DragOver="Window_DragOver" Drop="Window_Drop">
+                    <TextBlock Text="Dateien hierher ziehen – sie landen auf dem anderen PC im Ordner «Von anderem PC» auf dem Desktop."
+                               TextWrapping="Wrap" TextAlignment="Center" Foreground="{DynamicResource TextPrimary}" FontSize="13"/>
+                </Border>
+                <WrapPanel HorizontalAlignment="Center" Margin="0,14,0,0">
+                    <Button Content="Screenshot vom anderen PC" Click="ScreenshotPeer_Click"
+                            Margin="4" Padding="14,8" FontWeight="SemiBold" Cursor="Hand"
+                            Background="{DynamicResource AccentSoftBrush}" Foreground="{DynamicResource TextPrimary}"
+                            BorderBrush="{DynamicResource GroupBorder}" BorderThickness="1"/>
+                    <Button Content="Kopieren vom anderen PC" Click="PullClipboard_Click"
+                            Margin="4" Padding="14,8" FontWeight="SemiBold" Cursor="Hand"
+                            Background="{DynamicResource AccentSoftBrush}" Foreground="{DynamicResource TextPrimary}"
+                            BorderBrush="{DynamicResource GroupBorder}" BorderThickness="1"/>
+                    <Button Content="Empfangsordner" Click="OpenDropFolder_Click"
+                            Margin="4" Padding="14,8" FontWeight="SemiBold" Cursor="Hand"
+                            Background="{DynamicResource AccentSoftBrush}" Foreground="{DynamicResource TextPrimary}"
+                            BorderBrush="{DynamicResource GroupBorder}" BorderThickness="1"/>
+                </WrapPanel>
             </StackPanel>
         </Border>
 

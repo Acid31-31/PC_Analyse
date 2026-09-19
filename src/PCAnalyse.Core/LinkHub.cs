@@ -415,7 +415,8 @@ public sealed class LinkHub : IDisposable
             {
                 $"advfirewall firewall add rule name=\"PCAnalyse UDP\" dir=in action=allow protocol=UDP localport={LinkPorts.Udp} profile=domain,private,public",
                 $"advfirewall firewall add rule name=\"PCAnalyse TCP\" dir=in action=allow protocol=TCP localport={LinkPorts.Tcp} profile=domain,private,public",
-                $"advfirewall firewall add rule name=\"PCAnalyse Maus\" dir=in action=allow protocol=TCP localport={LinkPorts.InputTcp} profile=domain,private,public"
+                $"advfirewall firewall add rule name=\"PCAnalyse Maus\" dir=in action=allow protocol=TCP localport={LinkPorts.InputTcp} profile=domain,private,public",
+                $"advfirewall firewall add rule name=\"PCAnalyse Desk\" dir=in action=allow protocol=TCP localport={LinkPorts.DeskTcp} profile=domain,private,public"
             };
             if (!string.IsNullOrWhiteSpace(exe))
             {

@@ -19,6 +19,7 @@ public partial class MainWindow : Window
     private Button[] _navButtons = Array.Empty<Button>();
     private LinkHub? _hub;
     private MouseShareService? _mouseShare;
+    private DeskShareService? _deskShare;
     private IReadOnlyList<DiscoveredPeer> _peers = Array.Empty<DiscoveredPeer>();
 
     public MainWindow()
@@ -37,6 +38,7 @@ public partial class MainWindow : Window
         Closed += (_, _) =>
         {
             _mouseShare?.Dispose();
+            _deskShare?.Dispose();
             _hub?.Dispose();
         };
     }
@@ -268,6 +270,7 @@ public partial class MainWindow : Window
             if (LinkProgress is not null)
                 LinkProgress.IsIndeterminate = false;
             StartMouseShare();
+            StartDeskShare();
         });
         _hub.PeersChanged += peers => Dispatcher.Invoke(() => OnPeers(peers));
         _hub.Start();
@@ -370,5 +373,56 @@ public partial class MainWindow : Window
         _mouseShare.Start(_hub.PeerAddress, _hub.PeerInstanceId, _hub.InstanceId, side);
         if (MouseShareText is not null)
             MouseShareText.Text = _mouseShare.Status;
+    }
+
+    private void StartDeskShare()
+    {
+        if (_hub?.PeerAddress is null)
+            return;
+        if (_deskShare is null)
+        {
+            _deskShare = new DeskShareService();
+            _deskShare.StatusChanged += text => Dispatcher.Invoke(() =>
+            {
+                if (DeskShareText is not null)
+                    DeskShareText.Text = text;
+                SetStatus(text);
+            });
+        }
+
+        _deskShare.Start(_hub.PeerAddress, _hub.PeerInstanceId, _hub.InstanceId);
+        if (DeskShareText is not null)
+            DeskShareText.Text = _deskShare.Status;
+    }
+
+    private void ScreenshotPeer_Click(object sender, RoutedEventArgs e) => _deskShare?.RequestScreenshot();
+
+    private void PullClipboard_Click(object sender, RoutedEventArgs e) => _deskShare?.PullClipboard();
+
+    private void SendFiles_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Dateien an den anderen PC senden",
+            Multiselect = true
+        };
+        if (dialog.ShowDialog() == true)
+            _deskShare?.SendDropped(dialog.FileNames);
+    }
+
+    private void OpenDropFolder_Click(object sender, RoutedEventArgs e) => DeskShareService.OpenDropFolder();
+
+    private void Window_DragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void Window_Drop(object sender, DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop))
+            return;
+        if (e.Data.GetData(DataFormats.FileDrop) is string[] paths)
+            _deskShare?.SendDropped(paths);
     }
 }

@@ -7,7 +7,10 @@
         ResizeMode="CanResize"
         Background="{DynamicResource AppBackground}"
         Foreground="{DynamicResource TextPrimary}"
-        FontFamily="Segoe UI">
+        FontFamily="Segoe UI"
+        AllowDrop="True"
+        DragOver="Window_DragOver"
+        Drop="Window_Drop">
 
     <Window.Resources>
         <Style x:Key="TitleBarBtn" TargetType="Button">
@@ -423,7 +426,7 @@
                            Foreground="{DynamicResource TextPrimary}" Margin="0,4,0,8"/>
                 <TextBlock Grid.Row="0" Margin="0,36,0,16" TextWrapping="Wrap" FontSize="13"
                            Foreground="{DynamicResource TextSecondary}"
-                           Text="Auf dem zweiten PC «PCAnalyse.Verbindung» starten. Danach eine Maus für beide Rechner: Cursor über den Bildschirmrand schieben."/>
+                           Text="Auf dem zweiten PC «PCAnalyse.Verbindung» starten. Eine Maus für beide Rechner, Dateien rüberziehen, Screenshot und Zwischenablage teilen."/>
                 <Border Grid.Row="1" Padding="18" CornerRadius="8" Margin="0,0,0,16"
                         Background="{DynamicResource CardBackground}"
                         BorderBrush="{DynamicResource GroupBorder}" BorderThickness="1">
@@ -444,7 +447,27 @@
                         <Button Content="Maus auf den anderen PC" Style="{StaticResource PrimaryActionBtn}"
                                 HorizontalAlignment="Left" Margin="0,16,0,0" Padding="18,10"
                                 Click="SwitchMouse_Click"/>
-                        <ProgressBar x:Name="LinkProgress" IsIndeterminate="True" Margin="0,14,0,0"/>
+                        <TextBlock x:Name="DeskShareText" Margin="0,14,0,0" FontSize="13"
+                                   Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap"
+                                   Text="Dateien: wartet auf Verbindung"/>
+                        <Border Margin="0,12,0,0" Padding="14" CornerRadius="6"
+                                BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1"
+                                Background="{DynamicResource AccentSoftBrush}"
+                                AllowDrop="True" DragOver="Window_DragOver" Drop="Window_Drop">
+                            <TextBlock Text="Dateien hierher ziehen – sie landen auf dem Desktop des anderen PC in «Von anderem PC»."
+                                       TextWrapping="Wrap" Foreground="{DynamicResource TextPrimary}" FontSize="13"/>
+                        </Border>
+                        <WrapPanel Margin="0,12,0,0">
+                            <Button Content="Screenshot vom anderen PC" Style="{StaticResource SecondaryActionBtn}"
+                                    Margin="0,0,8,8" Padding="14,8" Click="ScreenshotPeer_Click"/>
+                            <Button Content="Kopieren vom anderen PC" Style="{StaticResource SecondaryActionBtn}"
+                                    Margin="0,0,8,8" Padding="14,8" Click="PullClipboard_Click"/>
+                            <Button Content="Dateien senden" Style="{StaticResource SecondaryActionBtn}"
+                                    Margin="0,0,8,8" Padding="14,8" Click="SendFiles_Click"/>
+                            <Button Content="Empfangsordner" Style="{StaticResource SecondaryActionBtn}"
+                                    Margin="0,0,8,8" Padding="14,8" Click="OpenDropFolder_Click"/>
+                        </WrapPanel>
+                        <ProgressBar x:Name="LinkProgress" IsIndeterminate="True" Margin="0,8,0,0"/>
                     </StackPanel>
                 </Border>
                 <Border Grid.Row="2" Padding="18" CornerRadius="8"

@@ -62,6 +62,9 @@ internal static class Native
     public static extern short GetAsyncKeyState(int vKey);
 
     [DllImport("user32.dll")]
+    public static extern uint GetClipboardSequenceNumber();
+
+    [DllImport("user32.dll")]
     public static extern int GetMessage(out Msg lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
 
     [DllImport("user32.dll")]

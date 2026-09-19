@@ -17,17 +17,11 @@ New-Item -ItemType Directory -Force -Path $localReleases | Out-Null
 function New-AppZip {
     param([string]$PublishDir, [string]$ZipName)
 
-    $appDir = Join-Path $staging ("app-" + [IO.Path]::GetFileNameWithoutExtension($ZipName))
-    if (Test-Path $appDir) { Remove-Item $appDir -Recurse -Force }
-    New-Item -ItemType Directory -Force -Path $appDir | Out-Null
-    Get-ChildItem $PublishDir -File | Where-Object {
-        $_.Name -like "PCAnalyse*" -and (
-            $_.Extension -eq ".dll" -or $_.Name -like "*.deps.json"
-        )
-    } | Copy-Item -Destination $appDir -Force
+    # 1.0.7/1.0.8 starten die EXE aus dem entpackten Update-Ordner.
+    # Ein Paket nur mit DLLs ergibt „keine gültige PCAnalyse.Verbindung.exe“.
     $zip = Join-Path $staging $ZipName
     if (Test-Path $zip) { Remove-Item $zip -Force }
-    Compress-Archive -Path (Join-Path $appDir "*") -DestinationPath $zip -CompressionLevel Optimal -Force
+    Compress-Archive -Path (Join-Path $PublishDir "*") -DestinationPath $zip -CompressionLevel Optimal -Force
     $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
     Copy-Item $zip (Join-Path $localReleases $ZipName) -Force
     return @{ Path = $zip; Hash = $hash; Name = $ZipName }
@@ -45,6 +39,7 @@ function Publish-Zip {
     if (Test-Path $zip) { Remove-Item $zip -Force }
     Compress-Archive -Path (Join-Path $out "*") -DestinationPath $zip -Force
     $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+    Copy-Item $zip (Join-Path $localReleases $ZipName) -Force
     $app = New-AppZip -PublishDir $out -ZipName $AppZipName
     return @{ Path = $zip; Hash = $hash; Name = $ZipName; App = $app }
 }
@@ -57,7 +52,7 @@ Set-Content -Path (Join-Path $localReleases "version.txt") -Value $version -Enco
 $notes = @"
 PC Analyse $version für beide Rechner.
 
-Updates sind klein (nur Programmdateien). Die .NET-Runtime wird nicht jedes Mal neu geladen.
+Dieses Update enthält die Runtime, damit der zweite PC (ältere Version) das Paket starten kann.
 
 SHA256 $($mein.App.Name): $($mein.App.Hash)
 SHA256 $($zweiter.App.Name): $($zweiter.App.Hash)

@@ -61,17 +61,9 @@ Set-Content -Path (Join-Path $releases "version.txt") -Value $version -Encoding 
 
 function Write-AppZip {
     param([string]$PublishFolder, [string]$ZipName)
-    $appDir = Join-Path $staging ("app-" + [IO.Path]::GetFileNameWithoutExtension($ZipName))
-    if (Test-Path $appDir) { Remove-Item $appDir -Recurse -Force }
-    New-Item -ItemType Directory -Force -Path $appDir | Out-Null
-    Get-ChildItem $PublishFolder -File | Where-Object {
-        $_.Name -like "PCAnalyse*" -and (
-            $_.Extension -eq ".dll" -or $_.Name -like "*.deps.json"
-        )
-    } | Copy-Item -Destination $appDir -Force
     $zip = Join-Path $releases $ZipName
     if (Test-Path $zip) { Remove-Item $zip -Force }
-    Compress-Archive -Path (Join-Path $appDir "*") -DestinationPath $zip -CompressionLevel Optimal -Force
+    Compress-Archive -Path (Join-Path $PublishFolder "*") -DestinationPath $zip -CompressionLevel Optimal -Force
 }
 
 Write-AppZip -PublishFolder (Join-Path $staging "Mein PC") -ZipName "PCAnalyse-MeinPC-app.zip"
